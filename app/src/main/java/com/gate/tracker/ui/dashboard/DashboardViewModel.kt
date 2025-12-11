@@ -7,13 +7,15 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.gate.tracker.data.local.entity.BranchEntity
 import com.gate.tracker.data.local.entity.ChapterEntity
-import com.gate.tracker.data.local.entity.GoalEntity
 import com.gate.tracker.data.local.entity.SubjectEntity
+import com.gate.tracker.data.local.entity.TodoWithDetails
 import com.gate.tracker.data.model.StreakBadge
 import com.gate.tracker.data.repository.GateRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,7 +26,8 @@ import java.util.concurrent.TimeUnit
 
 class DashboardViewModel(
     application: Application,
-    private val repository: GateRepository
+    private val repository: GateRepository,
+    private val backupRestoreViewModel: com.gate.tracker.ui.settings.BackupRestoreViewModel
 ) : AndroidViewModel(application) {
     
     private val _selectedBranch = MutableStateFlow<BranchEntity?>(null)
@@ -62,16 +65,24 @@ class DashboardViewModel(
         val nextChapter: ChapterEntity
     )
     
+    data class Recommendation(
+        val subject: SubjectEntity,
+        val chapter: ChapterEntity
+    )
+    
+    private val _recommendations = MutableStateFlow<List<Recommendation>>(emptyList())
+    val recommendations: StateFlow<List<Recommendation>> = _recommendations.asStateFlow()
+    
     private val _continueStudying = MutableStateFlow<ContinueStudyingData?>(null)
     val continueStudying: StateFlow<ContinueStudyingData?> = _continueStudying.asStateFlow()
     
-    // Goal tracking
-    val currentGoal: StateFlow<GoalEntity?> = repository.getCurrentActiveGoal()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = null
-        )
+    // Todo tracking
+    val todos: StateFlow<List<TodoWithDetails>> = MutableStateFlow(emptyList())
+    val pendingCount: StateFlow<Int> = MutableStateFlow(0)
+    
+    // Chapters map for subject selection
+    private val _chaptersBySubject = MutableStateFlow<Map<Int, List<ChapterEntity>>>(emptyMap())
+    val chaptersBySubject: StateFlow<Map<Int, List<ChapterEntity>>> = _chaptersBySubject.asStateFlow()
     
     // Revision Mode tracking
     val isRevisionMode: StateFlow<Boolean> = repository.isRevisionMode()
@@ -84,69 +95,69 @@ class DashboardViewModel(
     private val _totalRevised = MutableStateFlow(0)
     val totalRevised: StateFlow<Int> = _totalRevised.asStateFlow()
     
-    fun createWeeklyGoal(targetChapters: Int) {
+    fun addChapterToTodo(chapterId: Int) {
         viewModelScope.launch {
-            val startDate = System.currentTimeMillis()
-            val endDate = Calendar.getInstance().apply {
-                timeInMillis = startDate
-                add(Calendar.DAY_OF_YEAR, 7)
-            }.timeInMillis
-            
-            // Deactivate any existing active goal
-            currentGoal.value?.let { currentGoal ->
-                repository.deactivateGoal(currentGoal.id)
+            _selectedBranch.value?.let { branch ->
+                repository.addTodo(chapterId, branch.id, isRevisionMode.value)
             }
-            
-            val goal = GoalEntity(
-                goalType = "WEEKLY_CHAPTERS",
-                targetValue = targetChapters,
-                currentProgress = _totalCompleted.value,
-                startDate = startDate,
-                endDate = endDate,
-                isActive = true,
-                isCompleted = false
-            )
-            
-            repository.createGoal(goal)
         }
     }
     
-    fun createDailyGoal(targetChapters: Int) {
+    fun toggleTodo(todoId: Int, isCompleted: Boolean) {
         viewModelScope.launch {
-            val startDate = System.currentTimeMillis()
-            val endDate = Calendar.getInstance().apply {
-                timeInMillis = startDate
-                add(Calendar.DAY_OF_YEAR, 1)
-            }.timeInMillis
-            
-            // Deactivate any existing active goal
-            currentGoal.value?.let { currentGoal ->
-                repository.deactivateGoal(currentGoal.id)
+            if (isCompleted) {
+                // First, mark the todo as complete to trigger animation
+                repository.toggleTodo(todoId, true)
+                
+                // Add delay to allow animation to play (400ms for fade + slide animation)
+                kotlinx.coroutines.delay(400)
+                
+                // Marking as complete: mark chapter complete/revised AND remove from to-do list
+                val todo = todos.value.find { it.todo.id == todoId }
+                todo?.let {
+                    if (todo.todo.isRevisionMode) {
+                        // Revision mode: mark as revised or increment revision count
+                        if (!it.chapter.isRevised) {
+                            // First time revision - mark as revised
+                            repository.toggleRevisionStatus(it.chapter.id, it.chapter.isRevised)
+                            repository.updateSubjectRevisedCount(it.chapter.subjectId)
+                        } else {
+                            // Already revised - just increment revision count
+                            repository.incrementRevisionCount(it.chapter.id)
+                        }
+                    } else {
+                        // Normal mode: mark chapter as complete
+                        if (!it.chapter.isCompleted) {
+                            repository.toggleChapterStatus(it.chapter.id, it.chapter.isCompleted)
+                            repository.updateSubjectCompletedCount(it.chapter.subjectId)
+                        }
+                    }
+                    
+                    // Remove from to-do list after animation completes
+                    repository.deleteTodo(todoId)
+                    
+                    // Trigger auto-backup after a delay (3000ms = 3 seconds)
+                    // Delay ensures: 1) Animation completes, 2) Database writes finish to avoid conflicts
+                    kotlinx.coroutines.delay(3000)
+                    _selectedBranch.value?.let { branch ->
+                        backupRestoreViewModel.autoBackupSilently(branch.id, branch.name)
+                    }
+                }
+            } else {
+                // Unchecking (shouldn't happen with auto-delete, but keep for safety)
+                repository.toggleTodo(todoId, isCompleted)
             }
-            
-            val goal = GoalEntity(
-                goalType = "DAILY_CHAPTERS",
-                targetValue = targetChapters,
-                currentProgress = _totalCompleted.value,
-                startDate = startDate,
-                endDate = endDate,
-                isActive = true,
-                isCompleted = false
-            )
-            
-            repository.createGoal(goal)
         }
     }
     
-    fun getGoalProgressPercentage(goal: GoalEntity): Float {
-        if (goal.targetValue == 0) return 0f
-        return (goal.currentProgress.toFloat() / goal.targetValue.toFloat()).coerceIn(0f, 1f)
+    fun deleteTodo(todoId: Int) {
+        viewModelScope.launch {
+            repository.deleteTodo(todoId)
+        }
     }
     
-    fun getGoalDaysRemaining(goal: GoalEntity): Int {
-        val now = System.currentTimeMillis()
-        val remaining = goal.endDate - now
-        return (remaining / (1000 * 60 *  60 * 24)).toInt().coerceAtLeast(0)
+    fun getExistingChapterIds(): Set<Int> {
+        return todos.value.map { it.todo.chapterId }.toSet()
     }
     
     fun loadDashboard(branchId: Int) {
@@ -186,6 +197,7 @@ class DashboardViewModel(
         loadExamCountdown(branchId)
         loadContinueStudying(branchId)
         loadRevisionProgress(branchId)
+        loadTodoData(branchId)
     }
     
     private fun loadRevisionProgress(branchId: Int) {
@@ -212,24 +224,70 @@ class DashboardViewModel(
         _completedSubjects.value = completedSubjects
         _inProgressSubjects.value = inProgressSubjects
         _notStartedSubjects.value = notStartedSubjects
-        
-        // Update widget data store
-        com.gate.tracker.widget.WidgetDataStore.saveProgressData(
-            getApplication(),
-            completed,
-            total
-        )
-        com.gate.tracker.widget.WidgetDataStore.saveSubjectCounts(
-            getApplication(),
-            completedSubjects,
-            inProgressSubjects,
-            notStartedSubjects
-        )
-        
-        // Update goal progress if there's an active goal
+    }
+    
+    private fun loadTodoData(branchId: Int) {
         viewModelScope.launch {
-            currentGoal.value?.let { goal ->
-                repository.updateGoalProgress(goal.id, completed)
+            // Load all to-dos for the current mode - use flatMapLatest to switch flows when mode changes
+            isRevisionMode
+                .flatMapLatest { revisionMode ->
+                    repository.getTodosByBranch(branchId, revisionMode)
+                }
+                .collect { todoList ->
+                    (todos as MutableStateFlow).value = todoList
+                }
+        }
+        
+        viewModelScope.launch {
+            // Load pending count for current mode - use flatMapLatest to switch flows when mode changes
+            isRevisionMode
+                .flatMapLatest { revisionMode ->
+                    repository.getPendingTodoCount(branchId, revisionMode)
+                }
+                .collect { count ->
+                    (pendingCount as MutableStateFlow).value = count
+                }
+        }
+        
+        // Load all chapters grouped by subject for selection dialog
+        // This needs to react to subjects changes
+        viewModelScope.launch {
+            _subjects.collect { subjectList ->
+                val chaptersMap = mutableMapOf<Int, List<ChapterEntity>>()
+                subjectList.forEach { subject ->
+                    val chapters = repository.getChaptersBySubject(subject.id).first()
+                    chaptersMap[subject.id] = chapters
+                }
+                _chaptersBySubject.value = chaptersMap
+            }
+        }
+        
+        // Calculate recommendations dynamically
+        viewModelScope.launch {
+            combine(
+                _chaptersBySubject,
+                todos,
+                isRevisionMode,
+                _subjects
+            ) { chaptersMap, currentTodos, revisionMode, subjectList ->
+                val todoChapterIds = currentTodos.map { it.todo.chapterId }.toSet()
+                val recommendations = mutableListOf<Recommendation>()
+
+                subjectList.forEach { subject ->
+                    chaptersMap[subject.id]?.let { chapters ->
+                        val nextChapter = chapters.firstOrNull { chapter ->
+                            val isDone = if (revisionMode) chapter.isRevised else chapter.isCompleted
+                            !isDone && !todoChapterIds.contains(chapter.id)
+                        }
+                        
+                        if (nextChapter != null) {
+                            recommendations.add(Recommendation(subject, nextChapter))
+                        }
+                    }
+                }
+                recommendations.take(3)
+            }.collect { recs ->
+                _recommendations.value = recs
             }
         }
     }
@@ -269,12 +327,6 @@ class DashboardViewModel(
                     Log.d("GATE_TRACKER", "loadExamCountdown - calculated days remaining: $days (examDate: $it, currentTime: $currentTime)")
                     _daysRemaining.value = days
                     _motivationalMessage.value = getMotivationalMessage(days)
-                    
-                    // Update widget data store
-                    com.gate.tracker.widget.WidgetDataStore.saveDaysRemaining(
-                        getApplication(),
-                        days
-                    )
                 }
             }
         }
@@ -413,4 +465,5 @@ class DashboardViewModel(
             }
         }
     }
+
 }

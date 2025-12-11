@@ -37,13 +37,13 @@ fun ResourceCard(
     // Type-specific colors
     val (containerColor, contentColor) = when (resource.resourceType) {
         ResourceType.PDF -> Color(0xFFFFEBEE) to Color(0xFFC62828)
-        ResourceType.LINK -> Color(0xFFE3F2FD) to Color(0xFF1565C0)
+        ResourceType.URL -> Color(0xFFE3F2FD) to Color(0xFF1565C0)
         ResourceType.IMAGE -> Color(0xFFF3E5F5) to Color(0xFF6A1B9A)
     }
     
     val icon = when (resource.resourceType) {
         ResourceType.PDF -> Icons.Default.PictureAsPdf
-        ResourceType.LINK -> Icons.Default.Link
+        ResourceType.URL -> Icons.Default.Link
         ResourceType.IMAGE -> Icons.Default.Image
     }
 
@@ -54,7 +54,7 @@ fun ResourceCard(
                 onClick = {
                     try {
                         when (resource.resourceType) {
-                            ResourceType.LINK -> {
+                            ResourceType.URL -> {
                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(resource.uri))
                                 context.startActivity(intent)
                             }
@@ -159,7 +159,7 @@ fun ResourceCard(
                         Text(
                             text = when (resource.resourceType) {
                                 ResourceType.PDF -> "PDF"
-                                ResourceType.LINK -> "LINK"
+                                ResourceType.URL -> "LINK"
                                 ResourceType.IMAGE -> "IMAGE"
                             },
                             style = MaterialTheme.typography.labelSmall,

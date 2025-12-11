@@ -49,7 +49,7 @@ class DriveManager(private val context: Context) {
         if (signInClient == null) {
             val signInOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()
-                .requestScopes(Scope(DriveScopes.DRIVE_FILE))
+                .requestScopes(Scope(DriveScopes.DRIVE_READONLY), Scope(DriveScopes.DRIVE_FILE))
                 .build()
             
             signInClient = GoogleSignIn.getClient(context, signInOptions)
@@ -94,7 +94,16 @@ class DriveManager(private val context: Context) {
      */
     fun isSignedIn(): Boolean {
         val account = GoogleSignIn.getLastSignedInAccount(context)
-        return account != null && driveService != null
+        android.util.Log.d("DriveManager", "isSignedIn check: account=${account?.email}, driveService=${driveService != null}")
+        return account != null
+    }
+
+    /**
+     * Get the display name of the signed-in user
+     */
+    fun getUserName(): String? {
+        val account = GoogleSignIn.getLastSignedInAccount(context)
+        return account?.displayName
     }
     
     /**
@@ -117,6 +126,21 @@ class DriveManager(private val context: Context) {
         }
     }
     
+    /**
+     * Ensure Drive service is initialized
+     * Attempts to sign in silently if needed
+     */
+    suspend fun ensureInitialized(): Result<Unit> = withContext(Dispatchers.IO) {
+        if (driveService != null) return@withContext Result.success(Unit)
+        
+        val account = getSignedInAccount()
+        if (account != null) {
+            return@withContext initializeDriveService(account)
+        }
+        
+        Result.failure(Exception("User not signed in"))
+    }
+
     /**
      * Get or create app folder in Google Drive
      */
@@ -152,6 +176,84 @@ class DriveManager(private val context: Context) {
             Result.failure(Exception("Network error: ${e.message}"))
         } catch (e: Exception) {
             Result.failure(Exception("Failed to access app folder: ${e.message}"))
+        }
+    }
+
+    /**
+     * Upload a file to the app folder in Google Drive
+     * @param localUri Local file URI
+     * @param mimeType MIME type of the file
+     * @return Result containing the Drive File ID
+     */
+    suspend fun uploadFile(localUri: android.net.Uri, mimeType: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val service = driveService ?: return@withContext Result.failure(
+                Exception("Drive service not initialized")
+            )
+
+            // Get app folder ID
+            val folderIdResult = getOrCreateAppFolder()
+            if (folderIdResult.isFailure) {
+                return@withContext Result.failure(folderIdResult.exceptionOrNull()!!)
+            }
+            val folderId = folderIdResult.getOrNull()!!
+
+            // Get file name and stream from ContentResolver
+            val contentResolver = context.contentResolver
+            var fileName = "resource_${System.currentTimeMillis()}"
+            
+            contentResolver.query(localUri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1) {
+                        fileName = cursor.getString(nameIndex)
+                    }
+                }
+            }
+
+            // Create file metadata
+            val fileMetadata = com.google.api.services.drive.model.File()
+            fileMetadata.name = fileName
+            fileMetadata.parents = listOf(folderId)
+
+            // Create media content
+            val inputStream = contentResolver.openInputStream(localUri) ?: return@withContext Result.failure(
+                Exception("Could not open input stream for URI")
+            )
+            
+            val mediaContent = com.google.api.client.http.InputStreamContent(mimeType, inputStream)
+
+            // Upload
+            val file = service.files().create(fileMetadata, mediaContent)
+                .setFields("id")
+                .execute()
+
+            Result.success(file.id)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Download a file from Google Drive
+     * @param fileId Drive File ID
+     * @param targetFile Local target file
+     */
+    suspend fun downloadFile(fileId: String, targetFile: java.io.File): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val service = driveService ?: return@withContext Result.failure(
+                Exception("Drive service not initialized")
+            )
+
+            val outputStream = java.io.FileOutputStream(targetFile)
+            service.files().get(fileId)
+                .executeMediaAndDownloadTo(outputStream)
+            
+            outputStream.close()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            android.util.Log.e("DriveManager", "Download failed", e)
+            Result.failure(e)
         }
     }
     
@@ -268,4 +370,102 @@ class DriveManager(private val context: Context) {
             Result.failure(Exception("Failed to delete backup: ${e.message}"))
         }
     }
+    /**
+     * Metadata from a Drive file
+     */
+    data class DriveFileMetadata(
+        val name: String,
+        val mimeType: String,
+        val thumbnailLink: String?
+    )
+
+    /**
+     * Get file metadata (name, mimeType, thumbnail) from Drive
+     */
+    suspend fun getFileMetadata(fileId: String): Result<DriveFileMetadata> = withContext(Dispatchers.IO) {
+        try {
+            val service = driveService ?: return@withContext Result.failure(
+                Exception("Drive service not initialized")
+            )
+
+            val file = service.files().get(fileId)
+                .setFields("name, mimeType, thumbnailLink")
+                .execute()
+            
+            Result.success(
+                DriveFileMetadata(
+                    name = file.name,
+                    mimeType = file.mimeType,
+                    thumbnailLink = file.thumbnailLink
+                )
+            )
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Drive File with web link
+     */
+    data class DriveFile(
+        val id: String,
+        val name: String,
+        val mimeType: String,
+        val webViewLink: String?,
+        val thumbnailLink: String?
+    )
+
+    /**
+     * List all files in a specific folder
+     */
+    suspend fun listFilesInFolder(folderId: String): Result<List<DriveFile>> = withContext(Dispatchers.IO) {
+        try {
+            val service = driveService ?: return@withContext Result.failure(
+                Exception("Drive service not initialized")
+            )
+
+            val query = "'$folderId' in parents and trashed=false"
+            val result = service.files().list()
+                .setQ(query)
+                .setSpaces("drive")
+                .setFields("files(id, name, mimeType, webViewLink, thumbnailLink)")
+                .execute()
+            
+            val files = result.files.map { file ->
+                DriveFile(
+                    id = file.id,
+                    name = file.name,
+                    mimeType = file.mimeType,
+                    webViewLink = file.webViewLink,
+                    thumbnailLink = file.thumbnailLink
+                )
+            }
+            
+            Result.success(files)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Extract Drive File ID from URL
+     */
+    fun extractDriveIdFromUrl(url: String): String? {
+        val patterns = listOf(
+            "/file/d/([a-zA-Z0-9_-]+)",
+            "/folders/([a-zA-Z0-9_-]+)",
+            "id=([a-zA-Z0-9_-]+)",
+            "/open\\?id=([a-zA-Z0-9_-]+)"
+        )
+        
+        for (pattern in patterns) {
+            val regex = pattern.toRegex()
+            val match = regex.find(url)
+            if (match != null && match.groupValues.size > 1) {
+                return match.groupValues[1]
+            }
+        }
+        return null
+    }
+
 }

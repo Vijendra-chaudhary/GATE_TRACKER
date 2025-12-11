@@ -11,11 +11,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.clickable
 import com.gate.tracker.data.drive.DriveBackupFile
 
 /**
- * Backup & Restore section to be added to Settings Screen
+ * Backup & Restore section with minimal design
  */
 @Composable
 fun BackupRestoreSection(
@@ -27,151 +28,128 @@ fun BackupRestoreSection(
     val backupUiState by backupRestoreViewModel.uiState.collectAsState()
     val backupList by backupRestoreViewModel.backupList.collectAsState()
     val lastBackupTime by backupRestoreViewModel.lastBackupTime.collectAsState()
+    val driveUserName by backupRestoreViewModel.driveUserName.collectAsState()
     
-    var showBackupDialog by remember { mutableStateOf(false) }
-    var showRestoreDialog by remember { mutableStateOf(false) }
     var showRestoreWarning by remember { mutableStateOf(false) }
-    var selectedBackupFile by remember { mutableStateOf<DriveBackupFile?>(null) }
     
     Column(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(
-            text = "Backup & Restore",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 4.dp)
-        )
-        
-        // Backup to Drive Card
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable {
-                    if (backupRestoreViewModel.isSignedIn()) {
-                        showBackupDialog = true
-                    } else {
-                        onLaunchSignIn()
-                    }
-                },
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CloudUpload,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
-                )
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (backupRestoreViewModel.isSignedIn()) "Create Backup" else "Sign in to Google Drive",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = lastBackupTime?.let { "Last backup: $it" } 
-                            ?: if (backupRestoreViewModel.isSignedIn()) "Backup your progress to Google Drive" 
-                            else "Sign in to enable backup",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-        
-        // Restore from Drive Card (only if signed in)
+        // Backup and Restore Card (if signed in)
         if (backupRestoreViewModel.isSignedIn()) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        backupRestoreViewModel.loadAvailableBackups()
-                        showRestoreDialog = true
-                    },
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 1.dp
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CloudDownload,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(32.dp)
+                    // Header
+                    Text(
+                        text = "Backup & Restore",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(bottom = 0.dp)
                     )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+                    
+                    // User greeting
+                    if (!driveUserName.isNullOrEmpty()) {
                         Text(
-                            text = "Restore from Backup",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            text = "Signed in as $driveUserName",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Restore your progress from Google Drive",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    }
+                    
+                    // Backup and Restore Buttons Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Backup Button
+                        Button(
+                            onClick = {
+                                android.util.Log.d("GATE_TRACKER", "Backup clicked for branch $branchId ($branchName)")
+                                backupRestoreViewModel.createBackup(branchId, branchName)
+                            },
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudUpload,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Backup",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                        
+                        // Restore Button
+                        Button(
+                            onClick = {
+                                backupRestoreViewModel.loadAvailableBackups()
+                                showRestoreWarning = true
+                            },
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Restore",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
                     }
                 }
             }
+        } else {
+            // Sign in card (full width when not signed in)
+            MinimalSettingCard(
+                icon = Icons.Default.CloudUpload,
+                title = "Sign in to Google Drive",
+                subtitle = "Sign in to enable backup",
+                onClick = onLaunchSignIn
+            )
         }
+        
+
     }
     
-    // Dialogs
-    if (showBackupDialog) {
-        BackupConfirmationDialog(
-            branchName = branchName,
-            onConfirm = {
-                showBackupDialog = false
-                backupRestoreViewModel.createBackup(branchId, branchName)
-            },
-            onDismiss = { showBackupDialog = false }
-        )
-    }
-    
-    if (showRestoreDialog) {
-        RestoreSelectionDialog(
+    // Simple Restore Confirmation Dialog
+    if (showRestoreWarning) {
+        SimpleRestoreDialog(
             backupList = backupList,
-            currentBranchId = branchId,
-            onSelectBackup = { backup ->
-                selectedBackupFile = backup
-                showRestoreDialog = false
-                showRestoreWarning = true
-            },
-            onDismiss = { showRestoreDialog = false }
-        )
-    }
-    
-    if (showRestoreWarning && selectedBackupFile != null) {
-        RestoreWarningDialog(
-            backupFile = selectedBackupFile!!,
-            onConfirm = {
+            onConfirm = { backup ->
                 showRestoreWarning = false
-                backupRestoreViewModel.restoreBackup(selectedBackupFile!!)
+                backupRestoreViewModel.restoreBackup(backup)
             },
-            onDismiss = {
-                showRestoreWarning = false
-                selectedBackupFile = null
-            }
+            onDismiss = { showRestoreWarning = false }
         )
     }
     
@@ -179,7 +157,6 @@ fun BackupRestoreSection(
     LaunchedEffect(backupUiState) {
         when (backupUiState) {
             is BackupRestoreUiState.RestoreComplete -> {
-                // App needs to restart to reload data
                 backupRestoreViewModel.clearState()
             }
             else -> {}

@@ -14,6 +14,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.gate.tracker.data.local.entity.ResourceEntity
@@ -127,21 +129,15 @@ fun ResourcesContent(
             }
         } else {
             // Resources list
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(uiState.resources, key = { it.id }) { resource ->
-                    ResourceCard(
-                        resource = resource,
-                        onLongPress = {
-                            resourceToDelete = resource
-                            showDeleteDialog = true
-                        }
-                    )
-                }
-            }
+            ResourceList(
+                resources = uiState.resources,
+                onResourceClick = { /* Handled by viewModel.openResource */ },
+                onDeleteClick = { resource ->
+                    resourceToDelete = resource
+                    showDeleteDialog = true
+                },
+                viewModel = viewModel
+            )
         }
 
         // Floating Action Button
@@ -165,6 +161,7 @@ fun ResourcesContent(
         )
     }
     
+
     // Add Resource Dialog
     if (showAddDialog) {
         AddResourceDialog(
@@ -175,16 +172,21 @@ fun ResourcesContent(
                 selectedFileUri = null
                 selectedFileName = null
                 pendingResourceType = null
+                viewModel.resetFetchedMetadata()
             },
-            onConfirm = { title, uri, resourceType ->
-                val finalUri = if (resourceType == ResourceType.LINK) {
+            resolvedDriveMetadata = viewModel.fetchedDriveMetadata.collectAsState().value,
+            onCheckUrlMetadata = { url ->
+                viewModel.fetchDriveMetadata(url)
+            },
+            onConfirm = { title, uri, resourceType, thumbnailUrl ->
+                val finalUri = if (resourceType == ResourceType.URL) {
                     uri
                 } else {
                     selectedFileUri?.toString() ?: uri
                 }
                 
                 // Get file size for PDFs and images
-                val fileSize = if (resourceType != ResourceType.LINK && selectedFileUri != null) {
+                val fileSize = if (resourceType != ResourceType.URL && selectedFileUri != null) {
                     try {
                         context.contentResolver.openInputStream(selectedFileUri!!)?.use {
                             it.available().toLong()
@@ -200,6 +202,7 @@ fun ResourcesContent(
                     resourceType = resourceType,
                     description = "",
                     fileSize = fileSize,
+                    thumbnailUrl = thumbnailUrl,
                     onSuccess = {
                         showAddDialog = false
                         selectedFileUri = null
@@ -271,5 +274,186 @@ fun ResourcesContent(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun ResourceList(
+    resources: List<ResourceEntity>,
+    onResourceClick: (ResourceEntity) -> Unit,
+    onDeleteClick: (ResourceEntity) -> Unit,
+    modifier: Modifier = Modifier,
+    viewModel: ResourcesViewModel? = null
+) {
+    val context = LocalContext.current
+    var isOpeningFile by remember { mutableStateOf(false) }
+    
+    if (isOpeningFile) {
+        AlertDialog(
+            onDismissRequest = { /* Prevent dismiss */ },
+            title = { Text("Opening Resource") },
+            text = { 
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Downloading file...")
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(resources) { resource ->
+            ResourceItem(
+                resource = resource,
+                onClick = { 
+                    if (viewModel != null) {
+                        viewModel.openResource(
+                            resource = resource,
+                            onLoading = { isLoading -> isOpeningFile = isLoading },
+                            onError = { error -> 
+                                android.widget.Toast.makeText(context, error, android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            onOpen = { uri ->
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        if (resource.resourceType == ResourceType.URL) {
+                                            data = uri
+                                        } else {
+                                            val mimeType = if (resource.resourceType == ResourceType.PDF) "application/pdf" else "image/*"
+                                            setDataAndType(uri, mimeType)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "No app found to open this file", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
+                    } else {
+                        // Fallback logic
+                        onResourceClick(resource)
+                    }
+                },
+                onDeleteClick = { onDeleteClick(resource) }
+            )
+        }
+        
+        // Bottom padding for FAB
+        item {
+            Spacer(modifier = Modifier.height(80.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ResourceItem(
+    resource: ResourceEntity,
+    onClick: () -> Unit,
+    onDeleteClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Icon or Thumbnail
+            if (resource.thumbnailUrl != null) {
+                // Determine icon fallback based on type
+                val fallbackIcon = when (resource.resourceType) {
+                    ResourceType.PDF -> Icons.Default.PictureAsPdf
+                    ResourceType.URL -> Icons.Default.Link
+                    ResourceType.IMAGE -> Icons.Default.Image
+                }
+                
+                coil.compose.AsyncImage(
+                    model = resource.thumbnailUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    imageVector = when (resource.resourceType) {
+                        ResourceType.PDF -> Icons.Default.PictureAsPdf
+                        ResourceType.URL -> Icons.Default.Link
+                        ResourceType.IMAGE -> Icons.Default.Image
+                    },
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            // Details
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = resource.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                
+                if (resource.description.isNotEmpty()) {
+                    Text(
+                        text = resource.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+                
+                // Show size for files
+                if (resource.fileSize != null) {
+                    Text(
+                        text = formatFileSize(resource.fileSize),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Delete button
+            IconButton(onClick = onDeleteClick) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                )
+            }
+        }
+    }
+}
+
+private fun formatFileSize(size: Long): String {
+    val kb = size / 1024.0
+    val mb = kb / 1024.0
+    return when {
+        mb >= 1.0 -> String.format("%.2f MB", mb)
+        kb >= 1.0 -> String.format("%.2f KB", kb)
+        else -> "$size Bytes"
     }
 }

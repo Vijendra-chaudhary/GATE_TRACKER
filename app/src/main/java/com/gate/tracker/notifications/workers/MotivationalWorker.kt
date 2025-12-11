@@ -3,9 +3,12 @@ package com.gate.tracker.notifications.workers
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.gate.tracker.data.drive.DriveManager
 import com.gate.tracker.data.local.GateDatabase
 import com.gate.tracker.data.repository.GateRepository
 import com.gate.tracker.notifications.NotificationHelper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Worker for motivational quote notifications
@@ -49,7 +52,8 @@ class MotivationalWorker(
     override suspend fun doWork(): Result {
         return try {
             val database = GateDatabase.getInstance(applicationContext)
-            val repository = GateRepository(database)
+            val driveManager = DriveManager(applicationContext)
+            val repository = GateRepository(database, driveManager)
             val notificationHelper = NotificationHelper(applicationContext)
             
             // Check if enabled

@@ -27,6 +27,8 @@ data class BackupData(
     val chapters: List<ChapterBackup>,
     val notes: List<ChapterNoteBackup>,
     val mockTests: List<MockTestBackup>,
+    val resources: List<ChapterResourceBackup>,
+    val subjectResources: List<SubjectResourceBackup>? = null,
     val examDate: Long?,
     val preferences: UserPreferenceBackup,
     val notificationPreferences: NotificationPreferencesBackup?
@@ -95,6 +97,30 @@ data class MockTestBackup(
     val testType: String,
     val selectedSubjects: List<Int>,
     val createdAt: Long
+)
+
+data class ChapterResourceBackup(
+    val id: Int,
+    val chapterId: Int,
+    val type: String, // PDF, IMAGE, URL
+    val title: String,
+    val uri: String,
+    val driveFileId: String?,
+    val fileSize: Long,
+    val mimeType: String?,
+    val createdAt: Long
+)
+
+data class SubjectResourceBackup(
+    val id: Int,
+    val subjectId: Int,
+    val type: String,
+    val title: String,
+    val uri: String,
+    val description: String,
+    val fileSize: Long?,
+    val createdAt: Long,
+    val driveFileId: String?
 )
 
 /**
@@ -217,6 +243,54 @@ fun NotificationPreferencesBackup.toEntity() = NotificationPreferencesEntity(
     mockTestRemindersDays = mockTestRemindersDays,
     examCountdownTime = examCountdownTime,
     inactivityAlertsEnabled = inactivityAlertsEnabled
+)
+
+fun ChapterResourceEntity.toBackup() = ChapterResourceBackup(
+    id = id,
+    chapterId = chapterId,
+    type = type.name,
+    title = title,
+    uri = uri,
+    driveFileId = driveFileId,
+    fileSize = fileSize,
+    mimeType = mimeType,
+    createdAt = createdAt
+)
+
+fun ChapterResourceBackup.toEntity() = ChapterResourceEntity(
+    id = id,
+    chapterId = chapterId,
+    type = ResourceType.valueOf(type),
+    title = title,
+    uri = uri,
+    driveFileId = driveFileId,
+    fileSize = fileSize,
+    mimeType = mimeType,
+    createdAt = createdAt
+)
+
+fun SubjectResourceBackup.toEntity() = ResourceEntity(
+    id = id,
+    subjectId = subjectId,
+    resourceType = ResourceType.valueOf(type),
+    title = title,
+    uri = uri,
+    description = description,
+    fileSize = fileSize,
+    createdAt = createdAt,
+    driveFileId = driveFileId
+)
+
+fun ResourceEntity.toBackup() = SubjectResourceBackup(
+    id = id,
+    subjectId = subjectId,
+    type = resourceType.name,
+    title = title,
+    uri = uri,
+    description = description,
+    fileSize = fileSize,
+    createdAt = createdAt,
+    driveFileId = driveFileId
 )
 
 fun MockTestBackup.toEntity(branchId: Int) = MockTestEntity(

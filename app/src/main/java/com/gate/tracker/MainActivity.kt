@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
 
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -38,6 +39,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -88,22 +90,79 @@ class MainActivity : ComponentActivity() {
         var navController: androidx.navigation.NavHostController? = null
         var isSignedInState: androidx.compose.runtime.MutableState<Boolean>? = null
         
+        // Notification permission launcher (Android 13+)
+        val notificationPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            if (isGranted) {
+                Log.d("GATE_TRACKER", "Notification permission granted")
+            } else {
+                Log.d("GATE_TRACKER", "Notification permission denied")
+                // User can still use the app, but won't get notifications
+            }
+        }
+        
+        // Check and request notification permission for Android 13+
+        fun checkNotificationPermission() {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                when {
+                    androidx.core.content.ContextCompat.checkSelfPermission(
+                        this,
+                        android.Manifest.permission.POST_NOTIFICATIONS
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED -> {
+                        Log.d("GATE_TRACKER", "Notification permission already granted")
+                    }
+                    else -> {
+                        Log.d("GATE_TRACKER", "Requesting notification permission")
+                        notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            }
+        }
+        
         val signInLauncher = registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
         ) { result ->
+            Log.d("GATE_TRACKER", "Sign-in result received, resultCode: ${result.resultCode}")
             backupRestoreViewModel.handleSignInResult(result.data)
             
-            // After sign-in, check if successful and navigate
+            // After sign-in, check if successful and auto-restore
             lifecycleScope.launch {
                 val driveManager = com.gate.tracker.data.drive.DriveManager(this@MainActivity)
-                if (driveManager.isSignedIn()) {
+                val signedIn = driveManager.isSignedIn()
+                Log.d("GATE_TRACKER", "After sign-in check: isSignedIn = $signedIn")
+                
+                if (signedIn) {
                     // Update sign-in state to trigger recomposition
                     isSignedInState?.value = true
+                    Log.d("GATE_TRACKER", "Updated isSignedInState to true")
                     
-                    // Navigate to branch selection
-                    navController?.navigate("branch_selection") {
-                        popUpTo("login") { inclusive = true }
+                    // Auto-restore from cloud backups (with smart merge)
+                    Log.d("GATE_TRACKER", "Starting auto-restore...")
+                    backupRestoreViewModel.checkAndAutoRestore { success, message ->
+                        Log.d("GATE_TRACKER", "Auto-restore completed: success=$success, message=$message")
+                        
+                        // Navigate to tour or branch selection
+                        lifecycleScope.launch {
+                            // Re-fetch preference to ensure we have latest isFirstLaunch status 
+                            // (though unlikely to change during restore unless restore updates it)
+                            val userPref = repository.getUserPreference().firstOrNull()
+                            
+                            if (userPref?.isFirstLaunch == true) {
+                                navController?.navigate("app_tour") {
+                                    popUpTo("login") { inclusive = true }
+                                }
+                            } else {
+                                navController?.navigate("branch_selection") {
+                                    popUpTo("login") { inclusive = true }
+                                }
+                            }
+                            // Request notification permission after login
+                            checkNotificationPermission()
+                        }
                     }
+                } else {
+                    Log.d("GATE_TRACKER", "Sign-in failed")
                 }
             }
         }
@@ -134,7 +193,7 @@ class MainActivity : ComponentActivity() {
                 val navCtrl = rememberNavController()
                 
                 // Remember if we've already navigated based on saved preference
-                val hasNavigated = androidx.compose.runtime.remember { mutableStateOf(false) }
+                val hasNavigated = rememberSaveable { mutableStateOf(false) }
                 val isBranchSelected = userPref?.isFirstLaunch == false && userPref?.selectedBranchId != null && userPref?.selectedBranchId != 0
                 
                 // Check if user is signed in to Google Drive - use mutableState so it can be updated
@@ -156,7 +215,8 @@ class MainActivity : ComponentActivity() {
                 // Navigate to saved branch on first load (only once)
                 androidx.compose.runtime.LaunchedEffect(userPref, isSignedIn) {
                     if (!hasNavigated.value && userPref != null) {
-                        // Only navigate to dashboard if signed in
+                        // Only navigate to dashboard if signed in AND branch selected AND not first launch
+                        // However, if it's first launch, we want to stay/go to app_tour
                         if (isSignedIn && isBranchSelected) {
                             Log.d("GATE_TRACKER", "Navigating to saved branch: ${userPref?.selectedBranchId}")
                             navCtrl.navigate("dashboard/${userPref?.selectedBranchId}") {
@@ -172,10 +232,17 @@ class MainActivity : ComponentActivity() {
                     BrandedLoadingScreen()
                 } else {
                     Box(modifier = Modifier.fillMaxSize()) {
-                    // Start at login if not signed in, otherwise branch selection
+                    
+                    // Determine start destination
+                    val startDest = if (isSignedIn) {
+                        if (userPref?.isFirstLaunch == true) "app_tour" else "branch_selection"
+                    } else {
+                        "login"
+                    }
+
                     NavHost(
                         navController = navCtrl,
-                        startDestination = if (isSignedIn) "branch_selection" else "login"
+                        startDestination = startDest
                     ) {
                         // Login Screen Route
                         composable("login") {
@@ -190,13 +257,72 @@ class MainActivity : ComponentActivity() {
                             val viewModel: BranchSelectionViewModel = viewModel(
                                 factory = BranchSelectionViewModelFactory(repository)
                             )
+
+                            
+                            // We need a scope to check DB.
+                            val scope = rememberCoroutineScope()
+                            
+                            
                             BranchSelectionScreen(
                                 viewModel = viewModel,
                                 onContinue = {
-                                    val branchId = viewModel.selectedBranch.value?.id
-                                    Log.d("GATE_TRACKER", "Navigating to dashboard with branchId: $branchId")
+                                    val branchId = viewModel.selectedBranch.value?.id ?: 1
+                                    scope.launch {
+                                        val hasProgress = repository.hasAnyProgress(branchId)
+                                        if (hasProgress) {
+                                            navCtrl.navigate("dashboard/$branchId") {
+                                                popUpTo("branch_selection") { inclusive = true }
+                                            }
+                                        } else {
+                                            navCtrl.navigate("onboarding_completion/$branchId") {
+                                                popUpTo("branch_selection") { inclusive = true }
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
+                        composable("app_tour") {
+                            com.gate.tracker.ui.onboarding.AppTourScreen(
+                                onGetStarted = {
+                                    // Mark first launch as false
+                                    userPrefViewModel.updateFirstLaunch(false)
+                                    
+                                    navCtrl.navigate("branch_selection") {
+                                        popUpTo("app_tour") { inclusive = true }
+                                    }
+                                },
+                                onSkip = {
+                                    // Mark first launch as false
+                                    userPrefViewModel.updateFirstLaunch(false)
+                                    
+                                    navCtrl.navigate("branch_selection") {
+                                        popUpTo("app_tour") { inclusive = true }
+                                    }
+                                }
+                            )
+                        }
+
+                        composable(
+                            route = "onboarding_completion/{branchId}",
+                            arguments = listOf(navArgument("branchId") { type = NavType.IntType })
+                        ) { backStackEntry ->
+                            val branchId = backStackEntry.arguments?.getInt("branchId") ?: 1
+                            val viewModel: com.gate.tracker.ui.onboarding.OnboardingViewModel = viewModel(
+                                factory = com.gate.tracker.ui.onboarding.OnboardingViewModelFactory(repository, branchId)
+                            )
+                            
+                            com.gate.tracker.ui.onboarding.OnboardingCompletionScreen(
+                                viewModel = viewModel,
+                                onContinue = {
                                     navCtrl.navigate("dashboard/$branchId") {
-                                        popUpTo("branch_selection") { inclusive = true }
+                                        popUpTo("onboarding_completion/$branchId") { inclusive = true }
+                                    }
+                                },
+                                onSkip = {
+                                    navCtrl.navigate("dashboard/$branchId") {
+                                        popUpTo("onboarding_completion/$branchId") { inclusive = true }
                                     }
                                 }
                             )
@@ -216,7 +342,7 @@ class MainActivity : ComponentActivity() {
                             Log.d("GATE_TRACKER", "Dashboard route - final branchId after fallback logic: $branchId")
                             
                             val dashboardViewModel: DashboardViewModel = viewModel(
-                                factory = DashboardViewModelFactory(application, repository)
+                                factory = DashboardViewModelFactory(application, repository, backupRestoreViewModel)
                             )
                             val calendarViewModel: com.gate.tracker.ui.calendar.ProgressCalendarViewModel = viewModel(
                                 factory = ProgressCalendarViewModelFactory(repository, branchId)
@@ -250,7 +376,7 @@ class MainActivity : ComponentActivity() {
                                 if (it == 0) 1 else it 
                             } ?: 1
                             val viewModel: DashboardViewModel = viewModel(
-                                factory = DashboardViewModelFactory(application, repository)
+                                factory = DashboardViewModelFactory(application, repository, backupRestoreViewModel)
                             )
                             SubjectsOverviewScreen(
                                 branchId = branchId,
@@ -336,7 +462,7 @@ class MainActivity : ComponentActivity() {
                         ) { backStackEntry ->
                             val branchId = backStackEntry.arguments?.getInt("branchId") ?: 1
                             val dashboardViewModel: DashboardViewModel = viewModel(
-                                factory = DashboardViewModelFactory(application, repository)
+                                factory = DashboardViewModelFactory(application, repository, backupRestoreViewModel)
                             )
                             
                             // Load dashboard data
@@ -362,7 +488,10 @@ class MainActivity : ComponentActivity() {
                                 },
                                 branchId = branchId,
                                 onShareProgressClick = { showShareDialog = true },
-                                onRevisionModeClick = { showRevisionDialog = true }
+                                onRevisionModeClick = { showRevisionDialog = true },
+                                onMarkPreviousClick = {
+                                    navCtrl.navigate("onboarding_completion/$branchId")
+                                }
                             )
                             
                             if (showShareDialog) {
@@ -438,7 +567,7 @@ class MainActivity : ComponentActivity() {
                         
                         composable("notification_settings") {
                             val notificationViewModel: com.gate.tracker.ui.notifications.NotificationSettingsViewModel = viewModel(
-                                factory = com.gate.tracker.ui.notifications.NotificationSettingsViewModelFactory(repository)
+                                factory = com.gate.tracker.ui.notifications.NotificationSettingsViewModelFactory(application, repository)
                             )
                             com.gate.tracker.ui.notifications.NotificationSettingsScreen(
                                 viewModel = notificationViewModel,

@@ -112,7 +112,10 @@ fun LoginScreen(
             
             // Sign In Button
             Button(
-                onClick = onSignInClick,
+                onClick = {
+                    android.util.Log.d("GATE_TRACKER", "Login button clicked - launching sign-in")
+                    onSignInClick()
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),

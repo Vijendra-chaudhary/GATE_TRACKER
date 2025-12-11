@@ -37,7 +37,7 @@ data class NotificationPreferencesEntity(
     
     // Motivational Notifications
     val motivationalEnabled: Boolean = true,
-    val motivationalTime: String = "08:00",
+    val motivationalTime: String = "21:00",
     
     // Achievement Notifications
     val achievementNotificationsEnabled: Boolean = true,

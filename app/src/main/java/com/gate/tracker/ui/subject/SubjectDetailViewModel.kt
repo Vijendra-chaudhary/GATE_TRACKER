@@ -38,10 +38,28 @@ class SubjectDetailViewModel(
     private val _currentFilter = MutableStateFlow(ChapterFilter.ALL)
     val currentFilter: StateFlow<ChapterFilter> = _currentFilter.asStateFlow()
     
+    // Track current revision mode
+    private val _isRevisionMode = MutableStateFlow(false)
+    val isRevisionMode: StateFlow<Boolean> = _isRevisionMode.asStateFlow()
+    
+    // Track which chapters are in to-do for current mode
+    private val _todoChapterIds = MutableStateFlow<Set<Int>>(emptySet())
+    val todoChapterIds: StateFlow<Set<Int>> = _todoChapterIds.asStateFlow()
+    
     fun loadSubject(subjectId: Int) {
         viewModelScope.launch {
             //Load subject details
             _subject.value = repository.getSubjectById(subjectId)
+            
+            // Load revision mode status
+            _isRevisionMode.value = repository.isRevisionMode().first()
+            
+            // Load to-do chapter IDs for current mode
+            _subject.value?.let { subject ->
+                repository.getTodoChapterIds(subject.branchId, _isRevisionMode.value).collect { todoIds ->
+                    _todoChapterIds.value = todoIds
+                }
+            }
         }
         
         // Load chapters in separate coroutine
@@ -95,6 +113,7 @@ class SubjectDetailViewModel(
             
             // Trigger auto-backup after ANY chapter status change
             _subject.value?.let { subject ->
+                android.util.Log.d("GATE_TRACKER", "Chapter toggled, scheduling auto-backup for branch ${subject.branchId}")
                 com.gate.tracker.data.backup.AutoBackupWorker.scheduleBackup(
                     context = context,
                     branchId = subject.branchId,
@@ -142,6 +161,32 @@ class SubjectDetailViewModel(
     
     fun setFilter(filter: ChapterFilter) {
         _currentFilter.value = filter
+    }
+    
+    fun toggleChapterInTodo(chapterId: Int, onLimitReached: () -> Unit = {}) {
+        viewModelScope.launch {
+            _subject.value?.let { subject ->
+                val isInTodo = _todoChapterIds.value.contains(chapterId)
+                if (isInTodo) {
+                    // Remove from to-do - find the todo ID and delete it
+                    val todos = repository.getTodosByBranch(subject.branchId, _isRevisionMode.value).first()
+                    val todoToRemove = todos.find { it.todo.chapterId == chapterId }
+                    todoToRemove?.let {
+                        repository.deleteTodo(it.todo.id)
+                    }
+                } else {
+                    // Check pending count before adding (for current mode)
+                    val allTodos = repository.getPendingTodos(subject.branchId, _isRevisionMode.value).first()
+                    if (allTodos.size >= 3) {
+                        // Limit reached, notify user
+                        onLimitReached()
+                    } else {
+                        // Add to to-do with current mode
+                        repository.addTodo(chapterId, subject.branchId, _isRevisionMode.value)
+                    }
+                }
+            }
+        }
     }
     
     private fun getBranchName(branchId: Int): String {

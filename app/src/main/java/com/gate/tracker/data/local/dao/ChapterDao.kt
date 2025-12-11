@@ -23,8 +23,14 @@ interface ChapterDao {
     @Query("SELECT COUNT(*) FROM chapters WHERE subjectId = :subjectId AND isCompleted = 1")
     suspend fun getCompletedCount(subjectId: Int): Int
 
+    @Query("SELECT * FROM chapters WHERE subjectId IN (SELECT id FROM subjects WHERE branchId = :branchId)")
+    fun getChaptersByBranch(branchId: Int): Flow<List<ChapterEntity>>
+
     @Query("SELECT COUNT(*) FROM chapters WHERE isCompleted = 1 AND subjectId IN (SELECT id FROM subjects WHERE branchId = :branchId)")
     fun getTotalCompletedChapters(branchId: Int): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM chapters WHERE isCompleted = 1 AND subjectId IN (SELECT id FROM subjects WHERE branchId = :branchId)")
+    suspend fun getTotalCompletedChaptersSync(branchId: Int): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChapters(chapters: List<ChapterEntity>)
@@ -108,4 +114,19 @@ interface ChapterDao {
     
     @Query("UPDATE chapters SET isRevised = 0, revisedDate = NULL WHERE subjectId IN (SELECT id FROM subjects WHERE branchId = :branchId)")
     suspend fun resetAllRevisions(branchId: Int)
+    
+    @Query("SELECT * FROM chapters WHERE id = :chapterId LIMIT 1")
+    suspend fun getChapterByIdSync(chapterId: Int): ChapterEntity?
+    
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(chapter: ChapterEntity)
+    
+    @Update
+    suspend fun update(chapter: ChapterEntity)
+    
+    @Query("SELECT * FROM chapter_notes WHERE chapterId = :chapterId LIMIT 1")
+    suspend fun getNoteByChapterIdSync(chapterId: Int): ChapterNoteEntity?
+
+    @Query("UPDATE chapters SET isCompleted = 1, completedDate = NULL WHERE id IN (:chapterIds)")
+    suspend fun markChaptersAsPreExisting(chapterIds: List<Int>)
 }

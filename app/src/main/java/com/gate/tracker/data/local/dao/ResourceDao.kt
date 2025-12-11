@@ -51,4 +51,10 @@ interface ResourceDao {
      */
     @Query("SELECT COUNT(*) FROM resources WHERE subjectId = :subjectId")
     fun getResourceCount(subjectId: Int): Flow<Int>
+    
+    /**
+     * Get all resources for backup
+     */
+    @Query("SELECT * FROM resources")
+    suspend fun getAllResourcesSync(): List<ResourceEntity>
 }

@@ -7,6 +7,7 @@ import androidx.work.WorkerParameters
 import com.gate.tracker.data.local.GateDatabase
 import com.gate.tracker.data.repository.GateRepository
 import com.gate.tracker.notifications.NotificationScheduler
+import com.gate.tracker.data.drive.DriveManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -23,7 +24,8 @@ class AdaptiveSchedulerWorker(
         return withContext(Dispatchers.Default) {
             try {
                 val database = GateDatabase.getInstance(applicationContext)
-                val repository = GateRepository(database)
+                val driveManager = DriveManager(applicationContext)
+                val repository = GateRepository(database, driveManager)
                 
                 // Get optimal study hour from activity analysis
                 val optimalHour = repository.getOptimalStudyHour()

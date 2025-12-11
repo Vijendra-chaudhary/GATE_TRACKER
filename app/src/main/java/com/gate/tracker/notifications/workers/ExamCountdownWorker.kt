@@ -6,7 +6,10 @@ import androidx.work.WorkerParameters
 import com.gate.tracker.data.local.GateDatabase
 import com.gate.tracker.data.repository.GateRepository
 import com.gate.tracker.notifications.NotificationHelper
+import com.gate.tracker.data.drive.DriveManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+
 
 /**
  * Worker for exam countdown notifications
@@ -19,7 +22,8 @@ class ExamCountdownWorker(
     override suspend fun doWork(): Result {
         return try {
             val database = GateDatabase.getInstance(applicationContext)
-            val repository = GateRepository(database)
+            val driveManager = DriveManager(applicationContext)
+            val repository = GateRepository(database, driveManager)
             val notificationHelper = NotificationHelper(applicationContext)
             
             // Check if enabled
@@ -51,7 +55,8 @@ class ExamCountdownWorker(
                 3 -> "Just 3 days! Stay calm and confident"
                 1 -> "Tomorrow is the day! You're ready! 🚀"
                 0 -> "Today is GATE day! All the best! 🌟"
-                else -> null
+                0 -> "Today is GATE day! All the best! 🌟"
+                else -> "Focus on your goal! 🎯"
             }
             
             if (message != null && daysRemaining >= 0) {

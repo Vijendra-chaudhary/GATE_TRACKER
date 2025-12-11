@@ -11,10 +11,16 @@ import com.gate.tracker.data.local.entity.GoalEntity
 import com.gate.tracker.data.local.entity.SubjectEntity
 import com.gate.tracker.data.local.entity.UserPreferenceEntity
 import com.gate.tracker.data.model.*
+import com.gate.tracker.data.drive.DriveManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 
-class GateRepository(private val database: GateDatabase) {
+class GateRepository(
+    private val database: GateDatabase,
+    private val driveManager: DriveManager
+) {
     
     private val branchDao = database.branchDao()
     private val subjectDao = database.subjectDao()
@@ -26,6 +32,7 @@ class GateRepository(private val database: GateDatabase) {
     private val resourceDao = database.resourceDao()
     private val notificationPreferencesDao = database.notificationPreferencesDao()
     private val activityDao = database.activityDao()
+    private val todoDao = database.todoDao()
     
     // Branch Operations
     fun getAllBranches(): Flow<List<BranchEntity>> = branchDao.getAllBranches()
@@ -45,6 +52,16 @@ class GateRepository(private val database: GateDatabase) {
     // Chapter Operations
     fun getChaptersBySubject(subjectId: Int): Flow<List<ChapterEntity>> =
         chapterDao.getChaptersBySubject(subjectId)
+        
+    fun getAllChaptersForBranch(branchId: Int): Flow<List<ChapterEntity>> =
+        chapterDao.getChaptersByBranch(branchId)
+
+    suspend fun hasAnyProgress(branchId: Int): Boolean {
+        return chapterDao.getTotalCompletedChaptersSync(branchId) > 0
+    }
+    
+    suspend fun getChapterById(chapterId: Int): ChapterEntity? =
+        chapterDao.getChapterByIdSync(chapterId)
     
     suspend fun toggleChapterStatus(chapterId: Int, currentStatus: Boolean) {
         val newStatus = !currentStatus
@@ -60,6 +77,22 @@ class GateRepository(private val database: GateDatabase) {
     suspend fun updateSubjectCompletedCount(subjectId: Int) {
         val completedCount = chapterDao.getCompletedCount(subjectId)
         subjectDao.updateCompletedCount(subjectId, completedCount)
+    }
+    
+    suspend fun toggleRevisionStatus(chapterId: Int, currentStatus: Boolean) {
+        val newStatus = !currentStatus
+        val revisedDate = if (newStatus) System.currentTimeMillis() else null
+        chapterDao.markAsRevised(chapterId, newStatus, revisedDate)
+    }
+    
+    suspend fun incrementRevisionCount(chapterId: Int) {
+        // Mark as revised again with current timestamp, which increments the count
+        chapterDao.markAsRevised(chapterId, true, System.currentTimeMillis())
+    }
+    
+    suspend fun updateSubjectRevisedCount(subjectId: Int) {
+        val revisedCount = chapterDao.getRevisedCount(subjectId)
+        subjectDao.updateRevisedCount(subjectId, revisedCount)
     }
     
     fun getTotalCompletedChapters(branchId: Int): Flow<Int> = chapterDao.getTotalCompletedChapters(branchId)
@@ -79,6 +112,10 @@ class GateRepository(private val database: GateDatabase) {
     
     suspend fun clearSelectedBranch() {
         userPrefDao.resetPreferences()
+    }
+
+    suspend fun updateFirstLaunch(isFirstLaunch: Boolean) {
+        userPrefDao.updateFirstLaunch(isFirstLaunch)
     }
     
     suspend fun updateLongestStreak(streak: Int) {
@@ -215,6 +252,41 @@ class GateRepository(private val database: GateDatabase) {
     suspend fun deactivateGoal(goalId: Int) = goalDao.deactivateGoal(goalId)
     
     suspend fun deleteGoal(goalId: Int) = goalDao.deleteGoalById(goalId)
+    
+    // Todo Operations
+    fun getTodosByBranch(branchId: Int, isRevisionMode: Boolean): Flow<List<com.gate.tracker.data.local.entity.TodoWithDetails>> =
+        todoDao.getAllTodosByBranch(branchId, isRevisionMode)
+    
+    fun getPendingTodos(branchId: Int, isRevisionMode: Boolean): Flow<List<com.gate.tracker.data.local.entity.TodoWithDetails>> =
+        todoDao.getPendingTodos(branchId, isRevisionMode)
+    
+    fun getPendingTodoCount(branchId: Int, isRevisionMode: Boolean): Flow<Int> =
+        todoDao.getPendingCount(branchId, isRevisionMode)
+    
+    suspend fun addTodo(chapterId: Int, branchId: Int, isRevisionMode: Boolean): Long {
+        val todo = com.gate.tracker.data.local.entity.TodoEntity(
+            chapterId = chapterId,
+            branchId = branchId,
+            isRevisionMode = isRevisionMode
+        )
+        return todoDao.insertTodo(todo)
+    }
+    
+    suspend fun toggleTodo(todoId: Int, isCompleted: Boolean) {
+        todoDao.toggleTodo(todoId, isCompleted)
+    }
+    
+    suspend fun deleteTodo(todoId: Int) {
+        todoDao.deleteTodoById(todoId)
+    }
+    
+    suspend fun isChapterInTodo(chapterId: Int, branchId: Int, isRevisionMode: Boolean): Boolean =
+        todoDao.isChapterInTodo(chapterId, branchId, isRevisionMode)
+    
+    fun getTodoChapterIds(branchId: Int, isRevisionMode: Boolean): Flow<Set<Int>> =
+        todoDao.getAllTodosByBranch(branchId, isRevisionMode).map { todos ->
+            todos.map { it.todo.chapterId }.toSet()
+        }
     
     // Mock Test Operations
     fun getMockTestsForBranch(branchId: Int): Flow<List<com.gate.tracker.data.local.entity.MockTestEntity>> =
@@ -355,11 +427,6 @@ class GateRepository(private val database: GateDatabase) {
         chapterDao.markAsRevised(chapterId, isRevised, date)
     }
     
-    suspend fun updateSubjectRevisedCount(subjectId: Int) {
-        val revisedCount = chapterDao.getRevisedCount(subjectId)
-        subjectDao.updateRevisedCount(subjectId, revisedCount)
-    }
-    
     fun getTotalRevisedChapters(branchId: Int): Flow<Int> {
         return chapterDao.getTotalRevisedChapters(branchId)
     }
@@ -419,12 +486,18 @@ class GateRepository(private val database: GateDatabase) {
             branchName = branch.name
         )
         
+        // Export resources
+        val allResources = database.chapterResourceDao().getAllResourcesSync()
+        val subjectResources = database.resourceDao().getAllResourcesSync()
+        
         return com.gate.tracker.data.model.BackupData(
             metadata = metadata,
             subjects = subjects.map { it.toBackup() },
             chapters = allChapters.map { it.toBackup() },
             notes = allNotes.map { it.toBackup() },
             mockTests = mockTests.map { it.toBackup() },
+            resources = allResources.map { it.toBackup() },
+            subjectResources = subjectResources.map { it.toBackup() },
             examDate = examDate,
             preferences = userPref.toBackup(),
             notificationPreferences = notificationPref?.toBackup()
@@ -432,56 +505,144 @@ class GateRepository(private val database: GateDatabase) {
     }
     
     /**
-     * Import backup data and replace all existing data
+     * Import backup data with smart merge - combines cloud and local data
      */
     suspend fun importBackupData(backupData: com.gate.tracker.data.model.BackupData): Result<Unit> {
-        return try {
-            val branchId = backupData.metadata.branchId
-            
-            // Verify branch exists
-            val branch = branchDao.getBranchById(branchId)
-                ?: return Result.failure(Exception("Branch ${backupData.metadata.branchName} not found in database"))
-            
-            // Clear existing data for this branch
-            clearBranchData(branchId)
-            
-            // Import subjects
-            val subjects = backupData.subjects.map { it.toEntity(branchId) }
-            subjectDao.insertSubjects(subjects)
-            
-            // Import chapters
-            val chapters = backupData.chapters.map { it.toEntity() }
-            chapterDao.insertChapters(chapters)
-            
-            // Import notes
-            val notes = backupData.notes.map { it.toEntity() }
-            notes.forEach { note ->
-                chapterDao.insertNote(note)
+        return withContext(Dispatchers.IO) {
+            try {
+                android.util.Log.d("GateRepository", "Starting smart merge import...")
+                
+                val branchId = backupData.metadata.branchId
+                
+                // Smart merge subjects
+                android.util.Log.d("GateRepository", "Merging ${backupData.subjects.size} subjects...")
+                backupData.subjects.forEach { subjectBackup ->
+                    val subject = subjectBackup.toEntity(branchId)
+                    val existing = subjectDao.getSubjectByIdSync(subject.id)
+                    
+                    if (existing == null) {
+                        // New subject from cloud
+                        subjectDao.insert(subject)
+                    } else {
+                        // Merge: keep highest completed/revised counts
+                        val merged = existing.copy(
+                            completedChapters = maxOf(existing.completedChapters, subject.completedChapters),
+                            revisedChapters = maxOf(existing.revisedChapters, subject.revisedChapters)
+                        )
+                        subjectDao.update(merged)
+                    }
+                }
+                
+                // Smart merge chapters (OR operation for completion/revision)
+                android.util.Log.d("GateRepository", "Merging ${backupData.chapters.size} chapters...")
+                backupData.chapters.forEach { chapterBackup ->
+                    val chapter = chapterBackup.toEntity()
+                    val existing = chapterDao.getChapterByIdSync(chapter.id)
+                    
+                    if (existing == null) {
+                        // New chapter from cloud
+                        chapterDao.insert(chapter)
+                    } else {
+                        // Merge: if either is complete/revised, mark as complete/revised
+                        // AND preserve the dates!
+                        val isCompleted = existing.isCompleted || chapter.isCompleted
+                        val completedDate = if (existing.isCompleted) existing.completedDate else chapter.completedDate
+                        
+                        val isRevised = existing.isRevised || chapter.isRevised
+                        val revisedDate = if (existing.isRevised) existing.revisedDate else chapter.revisedDate
+                        
+                        val merged = existing.copy(
+                            isCompleted = isCompleted,
+                            completedDate = completedDate,
+                            isRevised = isRevised,
+                            revisedDate = revisedDate
+                        )
+                        chapterDao.update(merged)
+                    }
+                }
+                
+                // Smart merge notes (keep most recent by updatedAt)
+                android.util.Log.d("GateRepository", "Merging ${backupData.notes.size} notes...")
+                backupData.notes.forEach { noteBackup ->
+                    val note = noteBackup.toEntity()
+                    val existing = chapterDao.getNoteByChapterIdSync(note.chapterId)
+                    
+                    if (existing == null) {
+                        // New note from cloud
+                        chapterDao.insertNote(note)
+                    } else {
+                        // Keep the most recently updated note
+                        if (note.updatedAt > existing.updatedAt) {
+                            chapterDao.updateNote(note.copy(id = existing.id))
+                        }
+                    }
+                }
+                
+                // Merge mock tests (combine all unique tests)
+                android.util.Log.d("GateRepository", "Merging ${backupData.mockTests.size} mock tests...")
+                backupData.mockTests.forEach { testBackup ->
+                    val test = testBackup.toEntity(branchId)
+                    val existing = mockTestDao.getTestByIdSync(test.id)
+                    
+                    if (existing == null) {
+                        // New test from cloud
+                        mockTestDao.insert(test)
+                    } else {
+                        // Keep higher score
+                        if (test.score > existing.score) {
+                            mockTestDao.update(test)
+                        }
+                    }
+                }
+                
+                // Update exam date if from cloud is set (always update to cloud value)
+                backupData.examDate?.let { examDateLong ->
+                    examDateDao.updateExamDate(branchId, examDateLong)
+                }
+                
+                // Merge notification preferences (keep local if exists, otherwise use cloud)
+                backupData.notificationPreferences?.let { prefsBackup ->
+                    val prefs = prefsBackup.toEntity()
+                    val existing = notificationPreferencesDao.getPreferencesOnce()
+                    if (existing == null) {
+                        notificationPreferencesDao.insertPreferences(prefs)
+                    }
+                }
+                
+                // Merge resources (combine all unique resources)
+                android.util.Log.d("GateRepository", "Merging ${backupData.resources.size} resources...")
+                backupData.resources.forEach { resourceBackup ->
+                    val resource = resourceBackup.toEntity()
+                    val existing = database.chapterResourceDao().getResourceById(resource.id)
+                    
+                    if (existing == null) {
+                        // New resource from cloud
+                        database.chapterResourceDao().insert(resource)
+                    }
+                    // If exists, keep local version (don't overwrite)
+                }
+                
+                // Merge subject resources (handle null for old backups)
+                val subjectResourcesList = backupData.subjectResources ?: emptyList()
+                android.util.Log.d("GateRepository", "Merging ${subjectResourcesList.size} subject resources...")
+                subjectResourcesList.forEach { resourceBackup ->
+                    val resource = resourceBackup.toEntity()
+                    val existing = database.resourceDao().getResourceById(resource.id)
+                    
+                    if (existing == null) {
+                        // New resource from cloud
+                        android.util.Log.d("GateRepository", "Importing resource: ${resource.title}, DriveID: ${resource.driveFileId}")
+                        database.resourceDao().insertResource(resource)
+                    }
+                    // If exists, keep local version
+                }
+                
+                android.util.Log.d("GateRepository", "Smart merge completed successfully!")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                android.util.Log.e("GateRepository", "Smart merge failed", e)
+                Result.failure(e)
             }
-            
-            // Import exam date
-            backupData.examDate?.let { date ->
-                examDateDao.updateExamDate(branchId, date)
-            }
-            
-            // Import user preferences
-            val userPref = backupData.preferences.toEntity()
-            userPrefDao.insertPreference(userPref)
-            
-            // Import notification preferences
-            backupData.notificationPreferences?.let { notifPref ->
-                notificationPreferencesDao.insertPreferences(notifPref.toEntity())
-            }
-            
-            // Import mock tests
-            val mockTests = backupData.mockTests.map { it.toEntity(branchId) }
-            mockTests.forEach { mockTest ->
-                mockTestDao.insertMockTest(mockTest)
-            }
-            
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(Exception("Failed to import backup: ${e.message}"))
         }
     }
     
@@ -514,6 +675,34 @@ class GateRepository(private val database: GateDatabase) {
         // Delete mock tests
         mockTestDao.deleteAllTestsForBranch(branchId)
     }
+
+    /**
+     * Mark chapters as pre-existing (completed before using ap)
+     * Sets isCompleted = true but completedDate = null
+     */
+    suspend fun markChaptersAsPreExisting(chapterIds: List<Int>) {
+        if (chapterIds.isEmpty()) return
+        
+        // 1. Identify affected subjects BEFORE marking (to know which ones to update)
+        // We need to find subject IDs for these chapters. 
+        // Since we don't have getChaptersByIds, we can iterate or fetch all.
+        // Efficient enough for typical onboarding size (10-50 chapters) to iterate.
+        val affectedSubjectIds = mutableSetOf<Int>()
+        chapterIds.forEach { id ->
+            chapterDao.getChapterByIdSync(id)?.let { 
+                affectedSubjectIds.add(it.subjectId) 
+            }
+        }
+        
+        // 2. Mark chapters as completed
+        chapterDao.markChaptersAsPreExisting(chapterIds)
+        
+        // 3. Recalculate progress for affected subjects
+        affectedSubjectIds.forEach { subjectId ->
+            val count = chapterDao.getCompletedCount(subjectId)
+            subjectDao.updateCompletedCount(subjectId, count)
+        }
+    }
     
     /**
      * Validate backup data before import
@@ -528,6 +717,50 @@ class GateRepository(private val database: GateDatabase) {
         if (backupData.chapters.isEmpty()) return false
         
         return true
+    }
+    
+    /**
+     * Upload resource file to Google Drive
+     */
+    suspend fun uploadResourceFile(uri: android.net.Uri, mimeType: String): Result<String> {
+        return driveManager.uploadFile(uri, mimeType)
+    }
+    
+    /**
+     * Ensure Drive service is initialized
+     */
+    suspend fun ensureDriveService(): Result<Unit> {
+        return driveManager.ensureInitialized()
+    }
+
+    /**
+     * Download resource file from Google Drive
+     */
+    suspend fun downloadResourceFile(fileId: String, targetFile: java.io.File): Result<Unit> {
+        // Ensure service is initialized before download
+        driveManager.ensureInitialized()
+        return driveManager.downloadFile(fileId, targetFile)
+    }
+    /**
+     * Get metadata for a Drive file
+     */
+    /**
+     * Get metadata for a Drive file
+     */
+    suspend fun getDriveFileMetadata(fileId: String): Result<com.gate.tracker.data.drive.DriveManager.DriveFileMetadata> {
+        return try {
+            driveManager.ensureInitialized()
+            driveManager.getFileMetadata(fileId)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Get signed-in Drive user name
+     */
+    fun getDriveUserName(): String? {
+        return driveManager.getUserName()
     }
 }
 

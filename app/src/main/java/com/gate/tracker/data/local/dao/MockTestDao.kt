@@ -17,6 +17,19 @@ interface MockTestDao {
     @Query("SELECT * FROM mock_tests WHERE branchId = :branchId ORDER BY testDate DESC")
     fun getMockTestsForBranch(branchId: Int): Flow<List<MockTestEntity>>
     
+    // Sync methods for backup
+    @Query("SELECT * FROM mock_tests")
+    suspend fun getAllTestsSync(): List<MockTestEntity>
+    
+    @Query("SELECT * FROM mock_tests WHERE id = :testId LIMIT 1")
+    suspend fun getTestByIdSync(testId: Int): MockTestEntity?
+    
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(test: MockTestEntity)
+    
+    @Update
+    suspend fun update(test: MockTestEntity)
+    
     /**
      * Get a specific mock test by ID
      */

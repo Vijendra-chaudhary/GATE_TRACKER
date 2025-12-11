@@ -35,6 +35,12 @@ class UserPreferenceViewModel(
             repository.setThemeMode(mode)
         }
     }
+
+    fun updateFirstLaunch(isFirstLaunch: Boolean) {
+        viewModelScope.launch {
+            repository.updateFirstLaunch(isFirstLaunch)
+        }
+    }
 }
 
 // ViewModelFactories
@@ -65,12 +71,13 @@ class BranchSelectionViewModelFactory(
 
 class DashboardViewModelFactory(
     private val application: android.app.Application,
-    private val repository: GateRepository
+    private val repository: GateRepository,
+    private val backupRestoreViewModel: com.gate.tracker.ui.settings.BackupRestoreViewModel
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(DashboardViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return DashboardViewModel(application, repository) as T
+            return DashboardViewModel(application, repository, backupRestoreViewModel) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
@@ -130,12 +137,13 @@ class MockTestViewModelFactory(
 
 class ResourcesViewModelFactory(
     private val repository: GateRepository,
-    private val subjectId: Int
+    private val subjectId: Int,
+    private val context: android.content.Context
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(com.gate.tracker.ui.resources.ResourcesViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return com.gate.tracker.ui.resources.ResourcesViewModel(repository, subjectId) as T
+            return com.gate.tracker.ui.resources.ResourcesViewModel(repository, subjectId, context) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

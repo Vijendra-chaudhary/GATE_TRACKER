@@ -36,4 +36,13 @@ interface SubjectDao {
     
     @Query("UPDATE subjects SET revisedChapters = :count WHERE id = :subjectId")
     suspend fun updateRevisedCount(subjectId: Int, count: Int)
+    
+    @Query("SELECT * FROM subjects WHERE id = :subjectId")
+    suspend fun getSubjectByIdSync(subjectId: Int): SubjectEntity?
+    
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(subject: SubjectEntity)
+    
+    @androidx.room.Update
+    suspend fun update(subject: SubjectEntity)
 }

@@ -25,10 +25,12 @@ import java.util.Calendar
         GoalEntity::class,
         MockTestEntity::class,
         ResourceEntity::class,
+        ChapterResourceEntity::class,
         NotificationPreferencesEntity::class,
-        UserActivityLog::class
+        UserActivityLog::class,
+        TodoEntity::class
     ],
-    version = 20,
+    version = 25,
     exportSchema = false
 )
 abstract class GateDatabase : RoomDatabase() {
@@ -41,8 +43,10 @@ abstract class GateDatabase : RoomDatabase() {
     abstract fun goalDao(): GoalDao
     abstract fun mockTestDao(): MockTestDao
     abstract fun resourceDao(): ResourceDao
+    abstract fun chapterResourceDao(): ChapterResourceDao
     abstract fun notificationPreferencesDao(): NotificationPreferencesDao
     abstract fun activityDao(): ActivityDao
+    abstract fun todoDao(): TodoDao
     
     companion object {
         @Volatile
@@ -55,11 +59,53 @@ abstract class GateDatabase : RoomDatabase() {
                     GateDatabase::class.java,
                     "gate_tracker_database"
                 )
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25)
                     .addCallback(DatabaseCallback())
                     .build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        private val MIGRATION_21_22 = object : androidx.room.migration.Migration(21, 22) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Add driveFileId column to resources table
+                database.execSQL("ALTER TABLE resources ADD COLUMN driveFileId TEXT DEFAULT NULL")
+            }
+        }
+
+        private val MIGRATION_22_23 = object : androidx.room.migration.Migration(22, 23) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Add thumbnailUrl column to resources table
+                database.execSQL("ALTER TABLE resources ADD COLUMN thumbnailUrl TEXT DEFAULT NULL")
+            }
+        }
+        
+        private val MIGRATION_23_24 = object : androidx.room.migration.Migration(23, 24) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Create todos table
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS todos (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        chapterId INTEGER NOT NULL,
+                        branchId INTEGER NOT NULL,
+                        isCompleted INTEGER NOT NULL DEFAULT 0,
+                        createdAt INTEGER NOT NULL,
+                        FOREIGN KEY(chapterId) REFERENCES chapters(id) ON DELETE CASCADE,
+                        FOREIGN KEY(branchId) REFERENCES branches(id) ON DELETE CASCADE
+                    )
+                """)
+                
+                // Create indices for better query performance
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_todos_chapterId ON todos(chapterId)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_todos_branchId ON todos(branchId)")
+            }
+        }
+        
+        private val MIGRATION_24_25 = object : androidx.room.migration.Migration(24, 25) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Add isRevisionMode column to todos table
+                database.execSQL("ALTER TABLE todos ADD COLUMN isRevisionMode INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

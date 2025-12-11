@@ -1,6 +1,10 @@
 package com.gate.tracker.notifications
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.util.Log
 import androidx.work.*
 import com.gate.tracker.data.local.GateDatabase
 import com.gate.tracker.notifications.workers.*
@@ -11,17 +15,18 @@ import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
 /**
- * Scheduler for all notification types using WorkManager
+ * Scheduler for all notification types using AlarmManager for exact timing
+ * and WorkManager for immediate execution when alarm fires
  */
 object NotificationScheduler {
     
-    // Work tags for easy cancellation
-    private const val TAG_DAILY_REMINDER = "daily_reminder"
-    private const val TAG_REVISION_ALERT = "revision_alert"
-    private const val TAG_MOCK_TEST_REMINDER = "mock_test_reminder"
-    private const val TAG_EXAM_COUNTDOWN = "exam_countdown"
-    private const val TAG_INACTIVITY_ALERT = "inactivity_alert"
-    private const val TAG_MOTIVATIONAL = "motivational"
+    // Tags
+    const val TAG_DAILY_REMINDER = "daily_reminder"
+    const val TAG_REVISION_ALERT = "revision_alert"
+    const val TAG_MOCK_TEST_REMINDER = "mock_test_reminder"
+    const val TAG_EXAM_COUNTDOWN = "exam_countdown"
+    const val TAG_INACTIVITY_ALERT = "inactivity_alert"
+    const val TAG_MOTIVATIONAL = "motivational"
     
     /**
      * Schedule all notifications based on user preferences
@@ -35,238 +40,127 @@ object NotificationScheduler {
         scheduleMotivational(context)
     }
     
-    /**
-     * Schedule daily study reminder with custom time from preferences
-     */
+    // Trigger immediate worker when AlarmReceiver fires
+    fun triggerImmediateWorker(context: Context, tag: String) {
+        val workRequest = OneTimeWorkRequest.Builder(
+            when (tag) {
+                TAG_DAILY_REMINDER -> DailyReminderWorker::class.java
+                TAG_REVISION_ALERT -> RevisionAlertWorker::class.java
+                TAG_MOCK_TEST_REMINDER -> MockTestReminderWorker::class.java
+                TAG_EXAM_COUNTDOWN -> ExamCountdownWorker::class.java
+                TAG_INACTIVITY_ALERT -> InactivityAlertWorker::class.java
+                TAG_MOTIVATIONAL -> MotivationalWorker::class.java
+                else -> return
+            }
+        ).build()
+        
+        WorkManager.getInstance(context).enqueue(workRequest)
+    }
+    
     fun scheduleDailyReminder(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
-            val prefs = GateDatabase.getInstance(context)
-                .notificationPreferencesDao()
-                .getPreferencesOnce()
-            
+            val prefs = GateDatabase.getInstance(context).notificationPreferencesDao().getPreferencesOnce()
             val time = prefs?.dailyReminderTime ?: "09:00"
             val (hour, minute) = parseTime(time)
-            
-            scheduleDailyReminderAtHour(context, hour, minute)
+            scheduleAlarm(context, hour, minute, TAG_DAILY_REMINDER)
         }
     }
     
-    /**
-     * Schedule daily reminder at a specific hour (used by AdaptiveSchedulerWorker)
-     */
-    fun scheduleDailyReminderAtHour(context: Context, hour: Int, minute: Int = 0) {
-        val currentTime = java.util.Calendar.getInstance()
-        val targetTime = java.util.Calendar.getInstance().apply {
-            set(java.util.Calendar.HOUR_OF_DAY, hour)
-            set(java.util.Calendar.MINUTE, minute)
-            set(java.util.Calendar.SECOND, 0)
-            
-            // If target time is in the past, schedule for tomorrow
-            if (before(currentTime)) {
-                add(java.util.Calendar.DAY_OF_MONTH, 1)
-            }
-        }
-        
-        val initialDelay = targetTime.timeInMillis - currentTime.timeInMillis
-        
-        val dailyWorkRequest = PeriodicWorkRequestBuilder<DailyReminderWorker>(
-            1, TimeUnit.DAYS
-        )
-            .setInitialDelay(initialDelay, TimeUnit.MILLISECONDS)
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiresBatteryNotLow(true)
-                    .build()
-            )
-            .addTag(TAG_DAILY_REMINDER)
-            .build()
-        
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            TAG_DAILY_REMINDER,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            dailyWorkRequest)
-    }
-    
-    /**
-     * Schedule revision alerts with custom time and days
-     */
     fun scheduleRevisionAlerts(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
-            val prefs = GateDatabase.getInstance(context)
-                .notificationPreferencesDao()
-                .getPreferencesOnce()
-            
+            val prefs = GateDatabase.getInstance(context).notificationPreferencesDao().getPreferencesOnce()
             val time = prefs?.revisionAlertsTime ?: "18:00"
             val days = prefs?.revisionAlertsDays ?: "1,3,5"
             val (hour, minute) = parseTime(time)
-            
-            scheduleAtTimeOnDays(context, hour, minute, days, TAG_REVISION_ALERT) {
-                PeriodicWorkRequestBuilder<RevisionAlertWorker>(1, TimeUnit.DAYS)
-            }
+            scheduleAlarmDetailed(context, hour, minute, days, TAG_REVISION_ALERT)
         }
     }
     
-    /**
-     * Schedule mock test reminders with custom time and days
-     */
     fun scheduleMockTestReminders(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
-            val prefs = GateDatabase.getInstance(context)
-                .notificationPreferencesDao()
-                .getPreferencesOnce()
-            
+            val prefs = GateDatabase.getInstance(context).notificationPreferencesDao().getPreferencesOnce()
             val time = prefs?.mockTestRemindersTime ?: "15:00"
             val days = prefs?.mockTestRemindersDays ?: "0,6"
             val (hour, minute) = parseTime(time)
-            
-            scheduleAtTimeOnDays(context, hour, minute, days, TAG_MOCK_TEST_REMINDER) {
-                PeriodicWorkRequestBuilder<MockTestReminderWorker>(1, TimeUnit.DAYS)
-            }
+            scheduleAlarmDetailed(context, hour, minute, days, TAG_MOCK_TEST_REMINDER)
         }
     }
     
-    /**
-     * Schedule exam countdown with custom time
-     */
     fun scheduleExamCountdown(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
-            val prefs = GateDatabase.getInstance(context)
-                .notificationPreferencesDao()
-                .getPreferencesOnce()
-            
+            val prefs = GateDatabase.getInstance(context).notificationPreferencesDao().getPreferencesOnce()
             val time = prefs?.examCountdownTime ?: "20:00"
             val (hour, minute) = parseTime(time)
-            
-            scheduleDaily(context, hour, minute, TAG_EXAM_COUNTDOWN) {
-                PeriodicWorkRequestBuilder<ExamCountdownWorker>(1, TimeUnit.DAYS)
-            }
+            scheduleAlarm(context, hour, minute, TAG_EXAM_COUNTDOWN)
         }
     }
     
-    /**
-     * Schedule inactivity alerts with custom time
-     */
     fun scheduleInactivityAlerts(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
-            val prefs = GateDatabase.getInstance(context)
-                .notificationPreferencesDao()
-                .getPreferencesOnce()
-            
+            val prefs = GateDatabase.getInstance(context).notificationPreferencesDao().getPreferencesOnce()
             val time = prefs?.inactivityAlertsTime ?: "19:00"
             val (hour, minute) = parseTime(time)
-            
-            scheduleDaily(context, hour, minute, TAG_INACTIVITY_ALERT) {
-                PeriodicWorkRequestBuilder<InactivityAlertWorker>(1, TimeUnit.DAYS)
-            }
+            scheduleAlarm(context, hour, minute, TAG_INACTIVITY_ALERT)
         }
     }
     
-    /**
-     * Schedule motivational notifications with custom time
-     */
     fun scheduleMotivational(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
-            val prefs = GateDatabase.getInstance(context)
-                .notificationPreferencesDao()
-                .getPreferencesOnce()
-            
-            val time = prefs?.motivationalTime ?: "08:00"
+            val prefs = GateDatabase.getInstance(context).notificationPreferencesDao().getPreferencesOnce()
+            val time = prefs?.motivationalTime ?: "21:00"
             val (hour, minute) = parseTime(time)
-            
-            scheduleDaily(context, hour, minute, TAG_MOTIVATIONAL) {
-                PeriodicWorkRequestBuilder<MotivationalWorker>(1, TimeUnit.DAYS)
-            }
+            scheduleAlarm(context, hour, minute, TAG_MOTIVATIONAL)
         }
     }
     
-    /**
-     * Cancel a specific notification type
-     */
-    fun cancelNotification(context: Context, tag: String) {
-        WorkManager.getInstance(context).cancelAllWorkByTag(tag)
-    }
-    
-    /**
-     * Cancel all scheduled notifications
-     */
-    fun cancelAll(context: Context) {
-        WorkManager.getInstance(context).cancelAllWorkByTag(TAG_DAILY_REMINDER)
-        WorkManager.getInstance(context).cancelAllWorkByTag(TAG_REVISION_ALERT)
-        WorkManager.getInstance(context).cancelAllWorkByTag(TAG_MOCK_TEST_REMINDER)
-        WorkManager.getInstance(context).cancelAllWorkByTag(TAG_EXAM_COUNTDOWN)
-        WorkManager.getInstance(context).cancelAllWorkByTag(TAG_INACTIVITY_ALERT)
-        WorkManager.getInstance(context).cancelAllWorkByTag(TAG_MOTIVATIONAL)
-    }
-    
-    // ===== Helper Methods =====
-    
-    /**
-     * Parse time string (HH:mm) to hour and minute
-     */
-    private fun parseTime(time: String): Pair<Int, Int> {
-        return try {
-            val parts = time.split(":")
-            val hour = parts.getOrNull(0)?.toIntOrNull() ?: 9
-            val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
-            Pair(hour, minute)
-        } catch (e: Exception) {
-            Pair(9, 0) // Default to 9:00 AM
+    private fun scheduleAlarm(context: Context, hour: Int, minute: Int, tag: String) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra("TYPE", tag)
         }
-    }
-    
-    /**
-     * Schedule a daily notification at specific time
-     */
-    private fun scheduleDaily(
-        context: Context,
-        hour: Int,
-        minute: Int,
-        tag: String,
-        workRequestBuilder: () -> PeriodicWorkRequest.Builder
-    ) {
-        val currentTime = Calendar.getInstance()
-        val targetTime = Calendar.getInstance().apply {
+        // Use flag FLAG_UPDATE_CURRENT so extras are updated
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            tag.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val calendar = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, hour)
             set(Calendar.MINUTE, minute)
             set(Calendar.SECOND, 0)
-            
-            // If target time is in the past, schedule for tomorrow
-            if (before(currentTime)) {
+            if (before(Calendar.getInstance())) {
                 add(Calendar.DAY_OF_MONTH, 1)
             }
         }
-        
-        val initialDelay = targetTime.timeInMillis - currentTime.timeInMillis
-        
-        val workRequest = workRequestBuilder()
-            .setInitialDelay(initialDelay, TimeUnit.MILLISECONDS)
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiresBatteryNotLow(true)
-                    .build()
-            )
-            .addTag(tag)
-            .build()
-        
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            tag,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            workRequest
-        )
+
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        calendar.timeInMillis,
+                        pendingIntent
+                    )
+                } else {
+                     alarmManager.setExact(AlarmManager.RTC_WAKEUP, calendar.timeInMillis, pendingIntent)
+                }
+            } else {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    calendar.timeInMillis,
+                    pendingIntent
+                )
+            }
+            Log.d("NotificationScheduler", "Scheduled $tag for ${calendar.time}")
+        } catch (e: SecurityException) {
+            Log.d("NotificationScheduler", "Permission error scheduling alarm", e)
+        }
     }
     
-    /**
-     * Schedule notification at specific time on selected days
-     */
-    private fun scheduleAtTimeOnDays(
-        context: Context,
-        hour: Int,
-        minute: Int,
-        daysString: String,
-        tag: String,
-        workRequestBuilder: () -> PeriodicWorkRequest.Builder
-    ) {
-        val selectedDays = daysString.split(",")
+    private fun scheduleAlarmDetailed(context: Context, hour: Int, minute: Int, daysString: String, tag: String) {
+         val selectedDays = daysString.split(",")
             .mapNotNull { it.toIntOrNull() }
             .toSet()
         
@@ -276,16 +170,13 @@ object NotificationScheduler {
             set(Calendar.MINUTE, minute)
             set(Calendar.SECOND, 0)
             
-            // Find next occurrence of selected day
+            // Find next occurrence
             var daysToAdd = 0
-            val currentDayOfWeek = get(Calendar.DAY_OF_WEEK) - 1 // Convert to 0-6 (Sun=0)
+            val currentDayOfWeek = get(Calendar.DAY_OF_WEEK) - 1 
             
-            // Check if today is a selected day and time hasn't passed
             if (selectedDays.contains(currentDayOfWeek) && after(currentTime)) {
-                // Schedule for today
                 daysToAdd = 0
             } else {
-                // Find next selected day
                 for (i in 1..7) {
                     val checkDay = (currentDayOfWeek + i) % 7
                     if (selectedDays.contains(checkDay)) {
@@ -294,26 +185,89 @@ object NotificationScheduler {
                     }
                 }
             }
-            
             add(Calendar.DAY_OF_MONTH, daysToAdd)
         }
         
-        val initialDelay = targetTime.timeInMillis - currentTime.timeInMillis
-        
-        val workRequest = workRequestBuilder()
-            .setInitialDelay(initialDelay, TimeUnit.MILLISECONDS)
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiresBatteryNotLow(true)
-                    .build()
-            )
-            .addTag(tag)
-            .build()
-        
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            tag,
-            ExistingPeriodicWorkPolicy.UPDATE,
-            workRequest
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra("TYPE", tag)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            tag.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
+        try {
+             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    targetTime.timeInMillis,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    targetTime.timeInMillis,
+                    pendingIntent
+                )
+            }
+            Log.d("NotificationScheduler", "Scheduled $tag for ${targetTime.time}")
+        } catch (e: Exception) {
+             Log.e("NotificationScheduler", "Error scheduling detailed alarm", e)
+        }
+    }
+
+    private fun parseTime(time: String): Pair<Int, Int> {
+        return try {
+            val parts = time.split(":")
+            val hour = parts.getOrNull(0)?.toIntOrNull() ?: 9
+            val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+            Pair(hour, minute)
+        } catch (e: Exception) {
+            Pair(9, 0)
+        }
+    }
+
+    fun cancelAll(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val tags = listOf(TAG_DAILY_REMINDER, TAG_REVISION_ALERT, TAG_MOCK_TEST_REMINDER, 
+                         TAG_EXAM_COUNTDOWN, TAG_INACTIVITY_ALERT, TAG_MOTIVATIONAL)
+        
+        tags.forEach { tag ->
+            val intent = Intent(context, AlarmReceiver::class.java).apply {
+                putExtra("TYPE", tag)
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                tag.hashCode(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            alarmManager.cancel(pendingIntent)
+        }
+        WorkManager.getInstance(context).cancelAllWork()
+    }
+    
+    fun cancelNotification(context: Context, tag: String) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra("TYPE", tag)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            tag.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        alarmManager.cancel(pendingIntent)
+        
+        // Also cancel any related work
+        WorkManager.getInstance(context).cancelAllWorkByTag(tag)
+    }
+
+    fun scheduleDailyReminderAtHour(context: Context, hour: Int, minute: Int = 0) {
+        scheduleAlarm(context, hour, minute, TAG_DAILY_REMINDER)
     }
 }

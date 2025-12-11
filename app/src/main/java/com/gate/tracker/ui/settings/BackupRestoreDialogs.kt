@@ -20,155 +20,14 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Dialog to confirm backup creation
+ * Simple restore dialog that shows latest backup and asks for confirmation
  */
 @Composable
-fun BackupConfirmationDialog(
-    branchName: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                imageVector = Icons.Default.CloudUpload,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-        },
-        title = {
-            Text("Create Backup?")
-        },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    "This will backup the following data to Google Drive:",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.padding(start = 8.dp)
-                ) {
-                    InfoItem("• Branch: $branchName")
-                    InfoItem("• All completed chapters")
-                    InfoItem("• Chapter notes")
-                    InfoItem("• Exam date")
-                    InfoItem("• Study preferences")
-                }
-                
-                Text(
-                    "Backup will be encrypted and stored securely in your Google Drive.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = onConfirm) {
-                Text("Create Backup")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
-}
-
-/**
- * Dialog to select and restore a backup
- */
-@Composable
-fun RestoreSelectionDialog(
+fun SimpleRestoreDialog(
     backupList: List<DriveBackupFile>,
-    currentBranchId: Int,
-    onSelectBackup: (DriveBackupFile) -> Unit,
+    onConfirm: (DriveBackupFile) -> Unit,
     onDismiss: () -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.7f),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "Select Backup",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                if (backupList.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CloudOff,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                "No backups found",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(backupList) { backup ->
-                            BackupItem(
-                                backup = backup,
-                                onClick = { onSelectBackup(backup) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Dialog to confirm restore with warning
- */
-@Composable
-fun RestoreWarningDialog(
-    backupFile: DriveBackupFile,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    var understood by remember { mutableStateOf(false) }
-    
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = {
@@ -182,63 +41,66 @@ fun RestoreWarningDialog(
             Text("Restore Backup?")
         },
         text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            if (backupList.isEmpty()) {
                 Text(
-                    "⚠️ WARNING: This action cannot be undone!",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.error
-                )
-                
-                Text(
-                    "Restoring this backup will:",
+                    "No backups found in your Google Drive.",
                     style = MaterialTheme.typography.bodyMedium
                 )
-                
+            } else {
+                val latestBackup = backupList.firstOrNull()
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.padding(start = 8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    InfoItem("• Delete ALL current progress data")
-                    InfoItem("• Replace with backup data from:")
-                    InfoItem(
-                        "  ${formatDate(backupFile.createdTime)}",
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { understood = !understood }
-                        .padding(vertical = 8.dp)
-                ) {
-                    Checkbox(
-                        checked = understood,
-                        onCheckedChange = { understood = it }
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        "I understand this will delete my current progress",
+                        "⚠️ This will replace your current progress with the backup from:",
                         style = MaterialTheme.typography.bodyMedium
+                    )
+                    
+                    if (latestBackup != null) {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    latestBackup.name.replace(".json", ""),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    formatDate(latestBackup.createdTime),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    
+                    Text(
+                        "Your current data will be lost. This action cannot be undone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
                     )
                 }
             }
         },
         confirmButton = {
-            Button(
-                onClick = onConfirm,
-                enabled = understood,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error
-                )
-            ) {
-                Text("Restore Backup")
+            if (backupList.isNotEmpty()) {
+                Button(
+                    onClick = { 
+                        backupList.firstOrNull()?.let { onConfirm(it) }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Restore")
+                }
             }
         },
         dismissButton = {

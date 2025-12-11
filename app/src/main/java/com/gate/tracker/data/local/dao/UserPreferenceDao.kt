@@ -18,8 +18,11 @@ interface UserPreferenceDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPreference(preference: UserPreferenceEntity)
 
-    @Query("UPDATE user_preference SET selectedBranchId = :branchId, isFirstLaunch = 0 WHERE id = 1")
+    @Query("UPDATE user_preference SET selectedBranchId = :branchId WHERE id = 1")
     suspend fun updateBranchSelection(branchId: Int)
+
+    @Query("UPDATE user_preference SET isFirstLaunch = :isFirstLaunch WHERE id = 1")
+    suspend fun updateFirstLaunch(isFirstLaunch: Boolean)
     
     @Query("UPDATE user_preference SET selectedBranchId = 0, isFirstLaunch = 1 WHERE id = 1")
     suspend fun resetPreferences()

@@ -21,6 +21,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +41,7 @@ import com.gate.tracker.ui.resources.ResourcesContent
 import com.gate.tracker.ui.resources.ResourcesViewModel
 import com.gate.tracker.ResourcesViewModelFactory
 import com.gate.tracker.data.repository.GateRepository
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,6 +55,7 @@ fun SubjectDetailScreen(
     val chapters by viewModel.chapters.collectAsState()
     val chapterNotes by viewModel.chapterNotes.collectAsState()
     val currentFilter by viewModel.currentFilter.collectAsState()
+    val todoChapterIds by viewModel.todoChapterIds.collectAsState()
     
     // Check if in revision mode
     val isRevisionMode by repository.isRevisionMode().collectAsState(initial = false)
@@ -61,8 +64,9 @@ fun SubjectDetailScreen(
     var selectedTab by remember { mutableStateOf(0) }
     
     // Resources ViewModel
+    val context = androidx.compose.ui.platform.LocalContext.current
     val resourcesViewModel: ResourcesViewModel = viewModel(
-        factory = ResourcesViewModelFactory(repository, subjectId)
+        factory = ResourcesViewModelFactory(repository, subjectId, context)
     )
     
     // Celebration states
@@ -72,6 +76,10 @@ fun SubjectDetailScreen(
     // Note bottom sheet state
     var selectedChapterForNote by remember { mutableStateOf<ChapterEntity?>(null) }
     var showNoteBottomSheet by remember { mutableStateOf(false) }
+    
+    // Snackbar state for limit messages
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     
     // Track previous completed count
     val previousCompletedRef = remember { mutableStateOf<Int?>(null) }
@@ -298,6 +306,7 @@ fun SubjectDetailScreen(
                 chapterNotes = chapterNotes,
                 currentFilter = currentFilter,
                 animatedProgress = animatedProgress,
+                todoChapterIds = todoChapterIds,
                 onFilterChange = { viewModel.setFilter(it) },
                 onNoteClick = { chapter ->
                     selectedChapterForNote = chapter
@@ -312,6 +321,19 @@ fun SubjectDetailScreen(
                         }
                     }
                     viewModel.toggleChapter(chapter)
+                },
+                onAddToTodo = { chapterId ->
+                    viewModel.toggleChapterInTodo(
+                        chapterId = chapterId,
+                        onLimitReached = {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    message = "To-Do list full! Complete previous items first.",
+                                    duration = SnackbarDuration.Short
+                                )
+                            }
+                        }
+                    )
                 },
                 isRevisionMode = isRevisionMode
             )
@@ -379,9 +401,11 @@ private fun ChaptersTabContent(
     chapterNotes: Map<Int, com.gate.tracker.data.local.entity.ChapterNoteEntity>,
     currentFilter: ChapterFilter,
     animatedProgress: Float,
+    todoChapterIds: Set<Int>,
     onFilterChange: (ChapterFilter) -> Unit,
     onNoteClick: (ChapterEntity) -> Unit,
     onToggleChapter: (ChapterEntity) -> Unit,
+    onAddToTodo: (Int) -> Unit,
     isRevisionMode: Boolean = false
 ) {
     val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
@@ -577,7 +601,9 @@ private fun ChaptersTabContent(
                         needsRevision = note?.needsRevision ?: false,
                         onNoteClick = { onNoteClick(chapter) },
                         onToggle = { onToggleChapter(chapter) },
-                        isRevisionMode = isRevisionMode
+                        isRevisionMode = isRevisionMode,
+                        isInTodo = todoChapterIds.contains(chapter.id),
+                        onAddToTodo = { onAddToTodo(chapter.id) }
                     )
                 }
             }
@@ -605,7 +631,9 @@ private fun ChaptersTabContent(
                     needsRevision = note?.needsRevision ?: false,
                     onNoteClick = { onNoteClick(chapter) },
                     onToggle = { onToggleChapter(chapter) },
-                    isRevisionMode = isRevisionMode
+                    isRevisionMode = isRevisionMode,
+                    isInTodo = todoChapterIds.contains(chapter.id),
+                    onAddToTodo = { onAddToTodo(chapter.id) }
                 )
             }
         }

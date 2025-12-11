@@ -64,7 +64,7 @@ class NotificationHelper(private val context: Context) {
                     NotificationChannels.EXAM_COUNTDOWN,
                     NotificationChannels.EXAM_COUNTDOWN_NAME,
                     NotificationChannels.EXAM_COUNTDOWN_DESC,
-                    NotificationManager.IMPORTANCE_LOW
+                    NotificationManager.IMPORTANCE_HIGH
                 ),
                 createChannel(
                     NotificationChannels.INACTIVITY_ALERTS,
@@ -76,7 +76,7 @@ class NotificationHelper(private val context: Context) {
                     NotificationChannels.MOTIVATIONAL,
                     NotificationChannels.MOTIVATIONAL_NAME,
                     NotificationChannels.MOTIVATIONAL_DESC,
-                    NotificationManager.IMPORTANCE_LOW
+                    NotificationManager.IMPORTANCE_DEFAULT
                 ),
                 createChannel(
                     NotificationChannels.ACHIEVEMENTS,
@@ -119,12 +119,17 @@ class NotificationHelper(private val context: Context) {
         val pendingIntent = createPendingIntent(intent, NOTIFICATION_ID_DAILY_REMINDER)
         
         val notification = NotificationCompat.Builder(context, NotificationChannels.STUDY_REMINDERS)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
             .setContentTitle("Time to Study! 📚")
             .setContentText("You have $pendingChapters pending chapters")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("You have $pendingChapters pending chapters waiting for you. Keep up the streak!"))
+            .setColor(0xFF4A90E2.toInt())
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(0, "Start Studying", pendingIntent)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .build()
         
         notificationManager.notify(NOTIFICATION_ID_DAILY_REMINDER, notification)
@@ -138,12 +143,17 @@ class NotificationHelper(private val context: Context) {
         val pendingIntent = createPendingIntent(intent, NOTIFICATION_ID_REVISION)
         
         val notification = NotificationCompat.Builder(context, NotificationChannels.REVISION_ALERTS)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
             .setContentTitle("Revision Reminder 🔄")
-            .setContentText("$chaptersCount ${if (chaptersCount == 1) "chapter" else "chapters"} need${if (chaptersCount == 1) "s" else ""} revision")
+            .setContentText("$chaptersCount chapters need revision")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$chaptersCount chapters have entered the revision zone. Quick review now saves time later!"))
+            .setColor(0xFF4A90E2.toInt())
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(0, "Revise Now", pendingIntent)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .build()
         
         notificationManager.notify(NOTIFICATION_ID_REVISION, notification)
@@ -157,12 +167,17 @@ class NotificationHelper(private val context: Context) {
         val pendingIntent = createPendingIntent(intent, NOTIFICATION_ID_MOCK_TEST)
         
         val notification = NotificationCompat.Builder(context, NotificationChannels.MOCK_TEST_REMINDERS)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
             .setContentTitle("Mock Test Time! 📝")
             .setContentText("It's been $daysSinceLastTest days since your last test")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("It's been $daysSinceLastTest days since your last test. Testing is key to GATE success!"))
+            .setColor(0xFF4A90E2.toInt())
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(0, "Take Mock Test", pendingIntent)
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
             .build()
         
         notificationManager.notify(NOTIFICATION_ID_MOCK_TEST, notification)
@@ -176,12 +191,16 @@ class NotificationHelper(private val context: Context) {
         val pendingIntent = createPendingIntent(intent, NOTIFICATION_ID_EXAM_COUNTDOWN)
         
         val notification = NotificationCompat.Builder(context, NotificationChannels.EXAM_COUNTDOWN)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
             .setContentTitle("Exam in $daysRemaining Days! 📅")
             .setContentText(message)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setColor(0xFF4A90E2.toInt())
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
             .build()
         
         notificationManager.notify(NOTIFICATION_ID_EXAM_COUNTDOWN, notification)
@@ -195,12 +214,16 @@ class NotificationHelper(private val context: Context) {
         val pendingIntent = createPendingIntent(intent, NOTIFICATION_ID_INACTIVITY)
         
         val notification = NotificationCompat.Builder(context, NotificationChannels.INACTIVITY_ALERTS)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
             .setContentTitle("We Miss You! 😴")
             .setContentText("It's been $daysSinceActivity days since you studied")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("It's been $daysSinceActivity days since you last studied. Don't break the momentum!"))
+            .setColor(0xFF4A90E2.toInt())
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(0, "Resume Journey", pendingIntent)
             .build()
         
         notificationManager.notify(NOTIFICATION_ID_INACTIVITY, notification)
@@ -214,11 +237,13 @@ class NotificationHelper(private val context: Context) {
         val pendingIntent = createPendingIntent(intent, NOTIFICATION_ID_MOTIVATIONAL)
         
         val notification = NotificationCompat.Builder(context, NotificationChannels.MOTIVATIONAL)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
             .setContentTitle("Stay Motivated! ✨")
             .setContentText(quote)
             .setStyle(NotificationCompat.BigTextStyle().bigText(quote))
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setColor(0xFF4A90E2.toInt())
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()
@@ -234,9 +259,12 @@ class NotificationHelper(private val context: Context) {
         val pendingIntent = createPendingIntent(intent, NOTIFICATION_ID_ACHIEVEMENT)
         
         val notification = NotificationCompat.Builder(context, NotificationChannels.ACHIEVEMENTS)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
             .setContentTitle(title)
             .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setColor(0xFF4A90E2.toInt())
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
@@ -283,7 +311,8 @@ class NotificationHelper(private val context: Context) {
         val pendingIntent = createPendingIntent(intent, 2001)
         
         val notification = NotificationCompat.Builder(context, NotificationChannels.ACHIEVEMENTS)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
             .setContentTitle(title)
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_LOW)

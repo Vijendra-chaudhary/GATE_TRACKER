@@ -8,7 +8,7 @@ import androidx.room.PrimaryKey
  */
 enum class ResourceType {
     PDF,
-    LINK,
+    URL,
     IMAGE
 }
 
@@ -40,5 +40,11 @@ data class ResourceEntity(
     val fileSize: Long? = null,
     
     /** Timestamp when resource was added */
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+
+    /** Google Drive File ID for cloud sync */
+    val driveFileId: String? = null,
+
+    /** Thumbnail URL for preview */
+    val thumbnailUrl: String? = null
 )

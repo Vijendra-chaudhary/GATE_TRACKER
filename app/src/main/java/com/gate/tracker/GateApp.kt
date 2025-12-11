@@ -15,6 +15,7 @@ class GateApp : Application() {
     override fun onCreate() {
         super.onCreate()
         database = GateDatabase.getInstance(this)
-        repository = GateRepository(database)
+        val driveManager = com.gate.tracker.data.drive.DriveManager(this)
+        repository = GateRepository(database, driveManager)
     }
 }

@@ -27,6 +27,8 @@ class AutoBackupWorker(
          * If called multiple times within 3 seconds, only the last one executes
          */
         fun scheduleBackup(context: Context, branchId: Int, branchName: String) {
+            android.util.Log.d("AutoBackupWorker", "scheduleBackup called for branch $branchId ($branchName)")
+            
             val workRequest = OneTimeWorkRequestBuilder<AutoBackupWorker>()
                 .setInputData(
                     workDataOf(
@@ -42,6 +44,8 @@ class AutoBackupWorker(
                 .setInitialDelay(3, TimeUnit.SECONDS) // Wait 3s for DB to finish
                 .build()
             
+            android.util.Log.d("AutoBackupWorker", "Enqueueing work with 3-second delay")
+            
             // Replace existing pending backup with this one (debouncing effect)
             WorkManager.getInstance(context)
                 .enqueueUniqueWork(
@@ -49,6 +53,8 @@ class AutoBackupWorker(
                     ExistingWorkPolicy.REPLACE, // Replace = debounce
                     workRequest
                 )
+            
+            android.util.Log.d("AutoBackupWorker", "Work enqueued successfully")
         }
         
         /**
@@ -61,10 +67,15 @@ class AutoBackupWorker(
     
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
+            android.util.Log.d("AutoBackupWorker", "doWork started")
+            
             val branchId = inputData.getInt(KEY_BRANCH_ID, -1)
             val branchName = inputData.getString(KEY_BRANCH_NAME) ?: "Unknown"
             
+            android.util.Log.d("AutoBackupWorker", "Branch: $branchName (ID: $branchId)")
+            
             if (branchId == -1) {
+                android.util.Log.e("AutoBackupWorker", "Invalid branch ID, failing")
                 return@withContext Result.failure()
             }
             
@@ -74,14 +85,29 @@ class AutoBackupWorker(
             
             // Check if user is signed in to Google Drive
             val driveManager = com.gate.tracker.data.drive.DriveManager(applicationContext)
-            if (!driveManager.isSignedIn()) {
+            val account = driveManager.getSignedInAccount()
+            android.util.Log.d("AutoBackupWorker", "Sign-in check: account=${account?.email}")
+            
+            if (account == null) {
                 // Not signed in, can't backup
+                android.util.Log.w("AutoBackupWorker", "User not signed in to Drive, cannot backup")
                 return@withContext Result.failure()
             }
             
+            // Initialize Drive service for this background worker
+            android.util.Log.d("AutoBackupWorker", "Initializing Drive service...")
+            val initResult = driveManager.initializeDriveService(account)
+            if (initResult.isFailure) {
+                android.util.Log.e("AutoBackupWorker", "Failed to initialize Drive service: ${initResult.exceptionOrNull()?.message}")
+                return@withContext Result.failure()
+            }
+            android.util.Log.d("AutoBackupWorker", "Drive service initialized successfully")
+            
+            android.util.Log.d("AutoBackupWorker", "Exporting backup data...")
             // Export backup data
             val backupData = repository.exportBackupData(branchId)
             
+            android.util.Log.d("AutoBackupWorker", "Serializing to JSON...")
             // Serialize to JSON
             val serializer = com.gate.tracker.data.backup.BackupSerializer()
             val jsonContent = serializer.serialize(backupData)
@@ -91,34 +117,25 @@ class AutoBackupWorker(
                 .format(java.util.Date())
             val fileName = "gate_tracker_${branchName}_$timestamp.json"
             
+            android.util.Log.d("AutoBackupWorker", "Uploading to Drive: $fileName")
             // Upload to Drive
             val uploadResult = driveManager.uploadBackup(fileName, jsonContent)
             
             if (uploadResult.isSuccess) {
-                // Show success notification
-                showNotification(
-                    context = applicationContext,
-                    title = "Auto-Backup Complete",
-                    message = "Progress saved to Google Drive"
-                )
+                android.util.Log.d("AutoBackupWorker", "Backup successful!")
+                // Notification removed as per request (silent backup)
                 Result.success()
             } else {
-                // Show error notification
-                showNotification(
-                    context = applicationContext,
-                    title = "Auto-Backup Failed",
-                    message = "Will retry when online"
-                )
+                android.util.Log.e("AutoBackupWorker", "Backup failed: ${uploadResult.exceptionOrNull()?.message}")
+                // Notification removed as per request (silent backup)
                 Result.retry()
             }
         } catch (e: Exception) {
+            android.util.Log.e("AutoBackupWorker", "Exception in doWork", e)
             e.printStackTrace()
             Result.retry()
         }
     }
     
-    private fun showNotification(context: Context, title: String, message: String) {
-        val notificationHelper = com.gate.tracker.notifications.NotificationHelper(context)
-        notificationHelper.showBackupNotification(title, message)
-    }
+
 }

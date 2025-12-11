@@ -36,8 +36,8 @@ import com.gate.tracker.ui.components.StreakCard
 import com.gate.tracker.ui.components.SubjectCard
 import com.gate.tracker.ui.components.ContinueStudyingCard
 import com.gate.tracker.ui.components.EmptyStateView
-import com.gate.tracker.ui.components.GoalCard
-import com.gate.tracker.ui.components.GoalCreationDialog
+import com.gate.tracker.ui.components.TodoCard
+import com.gate.tracker.ui.components.TodoDialog
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.isSystemInDarkTheme
 import kotlinx.coroutines.delay
@@ -65,14 +65,17 @@ fun DashboardScreen(
     val longestStreak by viewModel.longestStreak.collectAsState()
     val currentBadge by viewModel.currentBadge.collectAsState()
     val continueStudying by viewModel.continueStudying.collectAsState()
-    val currentGoal by viewModel.currentGoal.collectAsState()
+    val todos by viewModel.todos.collectAsState()
+    val pendingCount by viewModel.pendingCount.collectAsState()
+    val chaptersBySubject by viewModel.chaptersBySubject.collectAsState()
+    val recommendations by viewModel.recommendations.collectAsState()
     
     // Revision mode state
     val isRevisionMode by viewModel.isRevisionMode.collectAsState()
     val totalRevised by viewModel.totalRevised.collectAsState()
     
-    // Goal creation dialog state
-    var showGoalDialog by remember { mutableStateOf(false) }
+    // Todo dialog state
+    var showTodoDialog by remember { mutableStateOf(false) }
     
     // Track mode changes for transition animation
     var showModeTransition by remember { mutableStateOf(false) }
@@ -241,145 +244,20 @@ fun DashboardScreen(
                         }
                     }
                     
-                    // 2. Goal Card
+                    // 2. Todo Card
                     item {
                         AnimatedVisibility(
                             visible = cardsVisible,
                             enter = fadeIn(animationSpec = tween(400, delayMillis = 100)) + 
                                     slideInVertically(initialOffsetY = { it / 2 })
                         ) {
-                            currentGoal?.let { goal ->
-                                // Check if goal is completed
-                                if (goal.isCompleted || goal.currentProgress >= goal.targetValue) {
-                                    // Trigger celebration animation
-                                    var showCelebration by remember { mutableStateOf(false) }
-                                    val view = LocalView.current
-                                    
-                                    LaunchedEffect(goal.id, goal.isCompleted) {
-                                        // Delay slightly then trigger animation
-                                        delay(200)
-                                        showCelebration = true
-                                        // Trigger haptic feedback for celebration
-                                        view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
-                                    }
-                                    
-                                    // Celebration animation
-                                    val scale by animateFloatAsState(
-                                        targetValue = if (showCelebration) 1f else 0f,
-                                        animationSpec = spring(
-                                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                                            stiffness = Spring.StiffnessLow
-                                        ),
-                                        label = "celebration_scale"
-                                    )
-                                    
-                                    val alpha by animateFloatAsState(
-                                        targetValue = if (showCelebration) 1f else 0f,
-                                        animationSpec = tween(durationMillis = 400),
-                                        label = "celebration_alpha"
-                                    )
-                                    
-                                    // Show congratulations card
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                                            .graphicsLayer {
-                                                scaleX = scale
-                                                scaleY = scale
-                                                this.alpha = alpha
-                                            },
-                                        shape = RoundedCornerShape(16.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.primaryContainer
-                                        ),
-                                        onClick = { showGoalDialog = true }
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(24.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Text(
-                                                text = "🎉",
-                                                fontSize = 40.sp
-                                            )
-                                            Text(
-                                                text = "Goal Achieved!",
-                                                style = MaterialTheme.typography.titleLarge,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                                            )
-                                            Text(
-                                                text = "You completed ${goal.currentProgress} chapters!",
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                                            )
-                                            
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            
-                                            // Motivational quote
-                                            Text(
-                                                text = "\"Small daily achievements lead to great success\"",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-                                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                                            )
-                                            
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Text(
-                                                text = "Tap to set a new goal",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    // Show active goal progress
-                                    GoalCard(
-                                        goal = goal,
-                                        progressPercentage = viewModel.getGoalProgressPercentage(goal),
-                                        daysRemaining = viewModel.getGoalDaysRemaining(goal),
-                                        onClick = { /* TODO: Navigate to goals screen */ }
-                                    )
-                                }
-                            } ?: run {
-
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                                    ),
-                                    onClick = { showGoalDialog = true }
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(20.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.EmojiEvents,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                            modifier = Modifier.size(28.dp)
-                                        )
-                                        Text(
-                                            text = "Set a weekly or daily goal",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                                        )
-                                    }
-                                }
-                            }
+                            TodoCard(
+                                todos = todos,
+                                pendingCount = pendingCount,
+                                onToggleTodo = { id, completed -> viewModel.toggleTodo(id, completed) },
+                                onAddClick = { showTodoDialog = true },
+                                onShowAllClick = { showTodoDialog = true }
+                            )
                         }
                     }
                     
@@ -432,146 +310,22 @@ fun DashboardScreen(
                     }
                     
                 } else {
-                    // GOAL MODE (>60 days): Goal → Progress → Countdown → Continue → Streak
+                    // GOAL MODE (>60 days): Todo → Progress → Countdown → Continue → Streak
                     
-                    // 1. Goal Card (focus on targets)
+                    // 1. Todo Card (focus on targets)
                     item {
                         AnimatedVisibility(
                             visible = cardsVisible,
                             enter = fadeIn(animationSpec = tween(400)) + 
                                     slideInVertically(initialOffsetY = { it / 2 })
                         ) {
-                            currentGoal?.let { goal ->
-                                // Check if goal is completed
-                                if (goal.isCompleted || goal.currentProgress >= goal.targetValue) {
-                                    // Trigger celebration animation
-                                    var showCelebration by remember { mutableStateOf(false) }
-                                    val view = LocalView.current
-                                    
-                                    LaunchedEffect(goal.id, goal.isCompleted) {
-                                        // Delay slightly then trigger animation
-                                        delay(200)
-                                        showCelebration = true
-                                        // Trigger haptic feedback for celebration
-                                        view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
-                                    }
-                                    
-                                    // Celebration animation
-                                    val scale by animateFloatAsState(
-                                        targetValue = if (showCelebration) 1f else 0f,
-                                        animationSpec = spring(
-                                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                                            stiffness = Spring.StiffnessLow
-                                        ),
-                                        label = "celebration_scale"
-                                    )
-                                    
-                                    val alpha by animateFloatAsState(
-                                        targetValue = if (showCelebration) 1f else 0f,
-                                        animationSpec = tween(durationMillis = 400),
-                                        label = "celebration_alpha"
-                                    )
-                                    
-                                    // Show congratulations card
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                                            .graphicsLayer {
-                                                scaleX = scale
-                                                scaleY = scale
-                                                this.alpha = alpha
-                                            },
-                                        shape = RoundedCornerShape(16.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.primaryContainer
-                                        ),
-                                        onClick = { showGoalDialog = true }
-                                    ) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(24.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Text(
-                                                text = "🎉",
-                                                fontSize = 40.sp
-                                            )
-                                            Text(
-                                                text = "Goal Achieved!",
-                                                style = MaterialTheme.typography.titleLarge,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                                            )
-                                            Text(
-                                                text = "You completed ${goal.currentProgress} chapters!",
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                                            )
-                                            
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            
-                                            // Motivational quote
-                                            Text(
-                                                text = "\"Small daily achievements lead to great success\"",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-                                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                                            )
-                                            
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Text(
-                                                text = "Tap to set a new goal",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    // Show active goal progress
-                                    GoalCard(
-                                        goal = goal,
-                                        progressPercentage = viewModel.getGoalProgressPercentage(goal),
-                                        daysRemaining = viewModel.getGoalDaysRemaining(goal),
-                                        onClick = { /* TODO: Navigate to goals screen */ }
-                                    )
-                                }
-                            } ?: run {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                                    ),
-                                    onClick = { showGoalDialog = true }
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(20.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.EmojiEvents,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                            modifier = Modifier.size(28.dp)
-                                        )
-                                        Text(
-                                            text = "Set a weekly or daily goal",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                                        )
-                                    }
-                                }
-                            }
+                            TodoCard(
+                                todos = todos,
+                                pendingCount = pendingCount,
+                                onToggleTodo = { id, completed -> viewModel.toggleTodo(id, completed) },
+                                onAddClick = { showTodoDialog = true },
+                                onShowAllClick = { showTodoDialog = true }
+                            )
                         }
                     }
                     
@@ -640,18 +394,18 @@ fun DashboardScreen(
         }
     }
     
-    // Goal Creation Dialog
-    if (showGoalDialog) {
-        GoalCreationDialog(
-            onDismiss = { showGoalDialog = false },
-            onCreateWeekly = { target ->
-                viewModel.createWeeklyGoal(target)
-                showGoalDialog = false
-            },
-            onCreateDaily = { target ->
-                viewModel.createDailyGoal(target)
-                showGoalDialog = false
-            }
+    // Todo Dialog
+    if (showTodoDialog) {
+        TodoDialog(
+            todos = todos,
+            subjects = subjects,
+            chapters = chaptersBySubject,
+            recommendations = recommendations,
+            existingChapterIds = viewModel.getExistingChapterIds(),
+            onAddChapter = { viewModel.addChapterToTodo(it) },
+            onToggleTodo = { id, completed -> viewModel.toggleTodo(id, completed) },
+            onDeleteTodo = { viewModel.deleteTodo(it) },
+            onDismiss = { showTodoDialog = false }
         )
     }
     

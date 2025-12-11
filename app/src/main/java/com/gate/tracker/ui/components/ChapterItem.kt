@@ -8,6 +8,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.StickyNote2
 import androidx.compose.material.icons.outlined.StickyNote2
@@ -34,7 +36,9 @@ fun ChapterItem(
     isImportant: Boolean = false,
     needsRevision: Boolean = false,
     onNoteClick: () -> Unit = {},
-    isRevisionMode: Boolean = false // New parameter
+    isRevisionMode: Boolean = false,
+    isInTodo: Boolean = false,
+    onAddToTodo: (() -> Unit)? = null
 ) {
     // Use appropriate completion field based on mode
     val isChecked = if (isRevisionMode) chapter.isRevised else chapter.isCompleted
@@ -165,6 +169,29 @@ fun ChapterItem(
                             }
                         }
                     }
+                }
+            }
+            
+            // To-Do icon button
+            if (onAddToTodo != null) {
+                IconButton(
+                    onClick = onAddToTodo,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isInTodo) {
+                            Icons.Default.PlaylistAddCheck
+                        } else {
+                            Icons.Default.PlaylistAdd
+                        },
+                        contentDescription = if (isInTodo) "Remove from To-Do" else "Add to To-Do",
+                        tint = if (isInTodo) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        },
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
             

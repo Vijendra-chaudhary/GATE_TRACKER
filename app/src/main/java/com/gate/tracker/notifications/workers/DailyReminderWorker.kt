@@ -6,6 +6,8 @@ import androidx.work.WorkerParameters
 import com.gate.tracker.data.local.GateDatabase
 import com.gate.tracker.data.repository.GateRepository
 import com.gate.tracker.notifications.NotificationHelper
+import com.gate.tracker.data.drive.DriveManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 
 /**
@@ -19,7 +21,8 @@ class DailyReminderWorker(
     override suspend fun doWork(): Result {
         return try {
             val database = GateDatabase.getInstance(applicationContext)
-            val repository = GateRepository(database)
+            val driveManager = DriveManager(applicationContext)
+            val repository = GateRepository(database, driveManager)
             val notificationHelper = NotificationHelper(applicationContext)
             
             // Check if notifications are enabled
@@ -28,10 +31,7 @@ class DailyReminderWorker(
                 return Result.success()
             }
             
-            // Check quiet hours
-            if (isQuietHours(prefs.quietHoursEnabled, prefs.quietHoursStart, prefs.quietHoursEnd)) {
-                return Result.success()
-            }
+
             
             // Get user's selected branch
             val userPref = repository.getUserPreference().first()
@@ -55,23 +55,5 @@ class DailyReminderWorker(
         }
     }
     
-    private fun isQuietHours(enabled: Boolean, start: String, end: String): Boolean {
-        if (!enabled) return false
-        
-        val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-        val currentMinute = java.util.Calendar.getInstance().get(java.util.Calendar.MINUTE)
-        val currentTime = currentHour * 60 + currentMinute
-        
-        val (startHour, startMinute) = start.split(":").map { it.toInt() }
-        val startTime = startHour * 60 + startMinute
-        
-        val (endHour, endMinute) = end.split(":").map { it.toInt() }
-        val endTime = endHour * 60 + endMinute
-        
-        return if (startTime < endTime) {
-            currentTime in startTime..endTime
-        } else {
-            currentTime >= startTime || currentTime <= endTime
-        }
-    }
+
 }

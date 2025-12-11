@@ -22,13 +22,37 @@ fun AddResourceDialog(
     selectedFileUri: String? = null,
     selectedFileName: String? = null,
     onDismiss: () -> Unit,
-    onConfirm: (title: String, uri: String, resourceType: ResourceType) -> Unit,
-    onPickFile: (ResourceType) -> Unit
+    onConfirm: (title: String, uri: String, resourceType: ResourceType, thumbnailUrl: String?) -> Unit,
+    onPickFile: (ResourceType) -> Unit,
+    resolvedDriveMetadata: com.gate.tracker.data.drive.DriveManager.DriveFileMetadata? = null,
+    onCheckUrlMetadata: (String) -> Unit
 ) {
     var title by remember(selectedFileName) { mutableStateOf(selectedFileName ?: "") }
     var uri by remember(selectedFileUri) { mutableStateOf(selectedFileUri ?: "") }
     var resourceType by remember { mutableStateOf(ResourceType.PDF) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var thumbnailUrl by remember { mutableStateOf<String?>(null) }
+    
+    // Auto-update title and type when resolved metadata changes
+    LaunchedEffect(resolvedDriveMetadata) {
+        if (resolvedDriveMetadata != null) {
+            if (title.isBlank() || title == extractTitleFromUrl(uri)) {
+                title = resolvedDriveMetadata.name
+            }
+            
+            // Auto-detect type
+            val mimeType = resolvedDriveMetadata.mimeType
+            if (mimeType == "application/pdf") {
+                resourceType = ResourceType.PDF
+            } else if (mimeType.startsWith("image/")) {
+                resourceType = ResourceType.IMAGE
+            }
+            // Keep as URL/Link if it's a folder or other type, but now we have the name!
+            
+            // Capture thumbnail
+            thumbnailUrl = resolvedDriveMetadata.thumbnailLink
+        }
+    }
     
     // Update uri and title when file is selected
     LaunchedEffect(selectedFileUri, selectedFileName) {
@@ -42,8 +66,14 @@ fun AddResourceDialog(
     
     // Auto-fill title from URL when pasted
     LaunchedEffect(uri) {
-        if (uri.isNotBlank() && title.isBlank() && resourceType == ResourceType.LINK) {
-            title = extractTitleFromUrl(uri)
+        if (uri.isNotBlank() && title.isBlank() && resourceType == ResourceType.URL) {
+            val isDriveUrl = uri.contains("drive.google.com") || uri.contains("docs.google.com")
+            
+            if (!isDriveUrl) {
+                title = extractTitleFromUrl(uri)
+            } else {
+                onCheckUrlMetadata(uri)
+            }
         }
     }
 
@@ -97,9 +127,9 @@ fun AddResourceDialog(
                     )
                     
                     FilterChip(
-                        selected = resourceType == ResourceType.LINK,
+                        selected = resourceType == ResourceType.URL,
                         onClick = { 
-                            resourceType = ResourceType.LINK
+                            resourceType = ResourceType.URL
                             errorMessage = null
                         },
                         label = { Text("Link") },
@@ -126,15 +156,23 @@ fun AddResourceDialog(
                 )
 
                 // URI/Link Input
-                if (resourceType == ResourceType.LINK) {
+                if (resourceType == ResourceType.URL) {
                     OutlinedTextField(
                         value = uri,
                         onValueChange = { newUri ->
                             uri = newUri
-                            // Auto-fill title from URL if title is empty
-                            if (title.isBlank() && newUri.isNotBlank()) {
+                            // Check for Drive metadata
+                            val isDriveUrl = newUri.contains("drive.google.com") || newUri.contains("docs.google.com")
+                            
+                            // Auto-fill title from URL if title is empty (Skip for Drive URLs)
+                            if (title.isBlank() && newUri.isNotBlank() && !isDriveUrl) {
                                 title = extractTitleFromUrl(newUri)
                             }
+                            
+                            if (isDriveUrl) {
+                                onCheckUrlMetadata(newUri)
+                            }
+                            
                             errorMessage = null
                         },
                         label = { Text("URL") },
@@ -183,13 +221,13 @@ fun AddResourceDialog(
                             errorMessage = "Title is required"
                         }
                         uri.isBlank() -> {
-                            errorMessage = if (resourceType == ResourceType.LINK)
+                            errorMessage = if (resourceType == ResourceType.URL)
                                 "URL is required"
                             else
                                 "Please select a file"
                         }
                         else -> {
-                            onConfirm(title, uri, resourceType)
+                            onConfirm(title, uri, resourceType, thumbnailUrl)
                         }
                     }
                 }
