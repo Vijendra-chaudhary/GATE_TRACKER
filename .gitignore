@@ -1,5 +1,5 @@
 # Built application files
-*.apk
+# *.apk  # Commented to allow APK files in repo
 *.ap_
 *.aab
 
@@ -13,7 +13,10 @@
 bin/
 gen/
 out/
-build/
+build/*
+!build/outputs/
+build/outputs/*
+!build/outputs/apk/
 .gradle/
 
 # Gradle files
