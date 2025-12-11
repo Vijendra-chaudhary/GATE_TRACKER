@@ -69,3 +69,6 @@ Thumbs.db
 *~
 *.swp
 *.bak
+
+# Heap dump files
+*.hprof
