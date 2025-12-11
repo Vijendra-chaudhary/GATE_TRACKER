@@ -1,6 +1,6 @@
 # 🎓 GATE Tracker
 
-> A comprehensive Android application for GATE Computer Science exam preparation and progress tracking.
+> A comprehensive Android application for GATE exam preparation and progress tracking.
 
 [![Platform](https://img.shields.io/badge/Platform-Android-green.svg)](https://www.android.com/)
 [![Version](https://img.shields.io/badge/Version-1.0-blue.svg)](https://github.com/Vijendra-chaudhary/GATE_TRACKER)
@@ -11,11 +11,11 @@ Download the latest version: **[app-debug.apk](app-debug.apk)**
 
 ## 📋 Overview
 
-GATE Tracker is a feature-rich study companion designed specifically for GATE Computer Science aspirants. This application helps students organize their preparation, track progress, and stay motivated throughout their GATE journey.
+GATE Tracker is a feature-rich study companion designed specifically for GATE aspirants across all branches. This application helps students organize their preparation, track progress, and stay motivated throughout their GATE journey.
 
 ## ✨ Key Features
 
-- **📚 Comprehensive Syllabus Coverage** - Complete GATE CS syllabus organized by subjects and chapters
+- **📚 Comprehensive Syllabus Coverage** - Complete GATE syllabus organized by subjects and chapters
 - **📊 Progress Tracking** - Visual progress indicators for each subject and chapter
 - **✅ To-Do Lists** - Manage daily study tasks and track completion
 - **📝 Chapter Notes** - Add and manage personal notes for each chapter
@@ -43,9 +43,9 @@ GATE Tracker is a feature-rich study companion designed specifically for GATE Co
 
 ## 🚀 Getting Started
 
-1. **Select Your Branch** - Choose Computer Science from the branch selection screen
+1. **Select Your Branch** - Choose your branch (CS/EC/EE/ME/CE/IN) from the branch selection screen
 2. **Set Exam Date** - Configure your GATE exam date for countdown tracking
-3. **Explore Subjects** - Browse through all GATE CS subjects and chapters
+3. **Explore Subjects** - Browse through all GATE subjects and chapters for your selected branch
 4. **Track Progress** - Mark chapters as complete and monitor your progress
 5. **Enable Cloud Backup** - Secure your data with Google Drive integration
 
@@ -59,4 +59,4 @@ This project is intended for educational purposes.
 
 ---
 
-**Made with ❤️ for GATE CS Aspirants**
+**Made with ❤️ for GATE Aspirants**
