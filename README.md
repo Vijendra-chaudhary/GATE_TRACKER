@@ -7,7 +7,7 @@
 
 ## 📥 Download
 
-Download the latest version: **[app-debug.apk](app-debug.apk)**
+Download the latest version: **[GATE-Tracker.apk](GATE-Tracker.apk)**
 
 ## 📋 Overview
 
