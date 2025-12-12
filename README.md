@@ -1,4 +1,4 @@
-# <img src="gate_tracker_logo_for_upload.png" width="48" height="48" style="vertical-align: middle;"> GATE Tracker
+# <img src="app_logo.png" width="48" height="48" style="vertical-align: middle;"> GATE Tracker
 
 > **Your ultimate companion for GATE exam success.**  
 > *Track Syllabus, Manage Revision, and Ace the Exam.*
