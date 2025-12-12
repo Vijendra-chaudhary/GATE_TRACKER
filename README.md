@@ -8,7 +8,7 @@
 [![Status](https://img.shields.io/badge/Status-Active-success.svg)](https://github.com/Vijendra-chaudhary/GATE_TRACKER)
 
 ## 📥 App Download
-**[Download Latest APK (v1.0)](GATE-Tracker.apk)**
+**[Download Latest APK (v1.0)](https://github.com/Vijendra-chaudhary/GATE_TRACKER/raw/master/GATE-Tracker.apk)**
 
 ---
 
