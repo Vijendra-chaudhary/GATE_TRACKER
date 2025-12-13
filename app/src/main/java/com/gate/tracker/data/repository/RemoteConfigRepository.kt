@@ -22,8 +22,8 @@ class RemoteConfigRepository {
         private const val TAG = "RemoteConfigRepository"
         
         // TODO: Update this URL after pushing config.json to GitHub
-        // Example: https://raw.githubusercontent.com/Vijendra-chaudhary/GATE_TRACKER/main/config.json
-        private const val CONFIG_URL = "https://raw.githubusercontent.com/Vijendra-chaudhary/GATE_TRACKER/main/config.json"
+        // Example: https://raw.githubusercontent.com/Vijendra-chaudhary/GATE_TRACKER/master/config.json
+        private const val CONFIG_URL = "https://raw.githubusercontent.com/Vijendra-chaudhary/GATE_TRACKER/master/config.json"
         
         private const val TIMEOUT_MS = 10000
     }
